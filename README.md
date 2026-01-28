@@ -1,37 +1,31 @@
-# MCP Router Infrastructure
+# MCP Email Server
 
-A replicable, extensible MCP router that aggregates multiple MCP backends behind a single endpoint.
+Minimal MCP server for email via ProtonMail Bridge.
 
 ## Architecture
 
 ```
-Claude → CF Worker (OAuth) → Tunnel → FastMCP Router → [backends]
-                                           ↓
-                              ┌────────────┴────────────┐
-                              ↓                         ↓
-                         zerolib email            (future servers)
-                              ↓
-                      ProtonMail Bridge
+Claude → CF Worker (OAuth) → nginx/SSL → MCP Server → ProtonMail Bridge
 ```
 
 ## Quick Start
 
-### 1. Clone and Setup
+### 1. Install uv and clone
 
 ```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone <repo-url>
 cd mcp-infrastructure
-./setup.sh
 ```
 
-### 2. Configure Secrets
+### 2. Configure
 
 ```bash
 cp .env.example .env
 # Edit .env with your credentials
 ```
 
-### 3. ProtonMail Bridge Login (One-time)
+### 3. ProtonMail Bridge (one-time)
 
 ```bash
 protonmail-bridge --cli
@@ -39,73 +33,48 @@ protonmail-bridge --cli
 # > info  (note the bridge password)
 ```
 
-### 4. Configure Email Backend
+### 4. Run
 
 ```bash
-cp backends/email/config.toml.example backends/email/config.toml
-# Edit with bridge credentials from step 3
+uv run mcp-email-server
 ```
 
-### 5. Start Services
+Or with systemd:
 
 ```bash
-sudo systemctl enable --now protonmail-bridge mcp-router
+sudo cp services/mcp-router.service /etc/systemd/system/
+sudo systemctl enable --now mcp-router
 ```
 
-## Adding New Backends
+## Tools
 
-See `backends/_template/README.md` for instructions on adding new MCP backends.
+- `list_emails(mailbox, limit)` - List recent emails
+- `get_email(message_id, mailbox)` - Get full email content
+- `send_email(to, subject, body)` - Send email
+- `health()` - Health check
 
-## Directory Structure
+## Claude Config
 
-```
-mcp-infrastructure/
-├── README.md                    # This file
-├── setup.sh                     # One-shot VPS setup script
-├── .env.example                 # Template for secrets
-│
-├── router/
-│   ├── server.py                # FastMCP aggregator
-│   └── requirements.txt         # Python deps
-│
-├── backends/
-│   ├── email/
-│   │   ├── config.toml.example  # zerolib config template
-│   │   ├── patches/
-│   │   │   └── ssl_bypass.py    # Monkey patch for SSL validation
-│   │   └── README.md            # Email backend setup
-│   │
-│   └── _template/               # Template for new backends
-│       └── README.md
-│
-├── services/
-│   ├── protonmail-bridge.service
-│   └── mcp-router.service
-│
-└── cloudflare/
-    ├── worker/                  # CF Worker source (reference)
-    └── tunnel-config.yml.example
+```json
+{
+  "mcpServers": {
+    "email": {
+      "url": "https://mcp-router-proxy.melubin.workers.dev/mcp",
+      "transport": "sse"
+    }
+  }
+}
 ```
 
-## Verification
+## Environment Variables
 
-1. Check services: `systemctl status protonmail-bridge mcp-router`
-2. Health check: `curl -H "X-MCP-Secret: $SECRET" http://127.0.0.1:8080/health`
-3. Test with MCP Inspector or Claude
-
-## Troubleshooting
-
-### ProtonMail Bridge Issues
-
-- Ensure bridge is logged in: `protonmail-bridge --cli` then `info`
-- Check bridge logs: `journalctl -u protonmail-bridge -f`
-
-### Router Issues
-
-- Check router logs: `journalctl -u mcp-router -f`
-- Verify .env is loaded: `systemctl show mcp-router --property=Environment`
-
-### SSL Certificate Errors
-
-The SSL bypass patch handles ProtonMail Bridge's self-signed certificate.
-If you see SSL errors, ensure `ssl_bypass.py` is being imported before the email backend.
+```bash
+MCP_SECRET=           # API key for auth
+ROUTER_HOST=127.0.0.1
+ROUTER_PORT=8080
+PROTON_BRIDGE_HOST=127.0.0.1
+PROTON_BRIDGE_IMAP_PORT=1143
+PROTON_BRIDGE_SMTP_PORT=1025
+PROTON_BRIDGE_USER=you@proton.me
+PROTON_BRIDGE_PASSWORD=bridge-password
+```

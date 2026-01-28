@@ -3,28 +3,12 @@
 *.pem
 *.key
 
-# Python
+# Python / uv
 .venv/
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+.python-version
 
 # IDE
 .idea/
@@ -40,14 +24,5 @@ Thumbs.db
 # Logs
 *.log
 
-# Local config (keep examples)
-config.toml
-!config.toml.example
-
-# Cloudflare credentials (but keep worker config)
-*.json
-!package.json
-!tsconfig.json
-wrangler.toml
-!cloudflare/worker/wrangler.toml
+# Node
 node_modules/

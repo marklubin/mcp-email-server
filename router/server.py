@@ -1,110 +1,205 @@
 #!/usr/bin/env python3
-"""
-MCP Router - Serves email backend with SSL patch for ProtonMail Bridge.
-
-For now, this directly runs the email server. Future versions may aggregate
-multiple backends using FastMCP's proxy/mount features when APIs stabilize.
-"""
+"""Minimal MCP Email Server for ProtonMail Bridge."""
 
 import os
-import sys
-from pathlib import Path
+import json
+from email.header import decode_header
+from email import message_from_bytes
 
-# Add project root to path for backend imports
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+from fastmcp import FastMCP
+from aioimaplib import IMAP4
 
-from dotenv import load_dotenv
+IMAP_HOST = os.environ.get('PROTON_BRIDGE_HOST', '127.0.0.1')
+IMAP_PORT = int(os.environ.get('PROTON_BRIDGE_IMAP_PORT', '1143'))
+IMAP_USER = os.environ.get('PROTON_BRIDGE_USER', '')
+IMAP_PASS = os.environ.get('PROTON_BRIDGE_PASSWORD', '')
+MCP_SECRET = os.environ.get('MCP_SECRET', '')
 
-# Load environment variables
-load_dotenv(project_root / ".env")
+mcp = FastMCP('email')
 
-# --- SSL Patch ---
-# Apply SSL patch before importing email server (for ProtonMail Bridge self-signed cert)
-from backends.email.patches.ssl_bypass import apply_patch
-apply_patch()
-print("✓ SSL bypass patch applied")
 
-# --- Email Backend ---
-from mcp_email_server.app import mcp as email_mcp
+def decode_mime_header(header):
+    if not header:
+        return ''
+    parts = decode_header(header)
+    decoded = []
+    for content, charset in parts:
+        if isinstance(content, bytes):
+            decoded.append(content.decode(charset or 'utf-8', errors='replace'))
+        else:
+            decoded.append(content)
+    return ''.join(decoded)
 
-# Add a health check tool to the email server
-@email_mcp.tool()
-def router_health() -> dict:
-    """Health check endpoint for the MCP router."""
+
+@mcp.tool()
+async def list_emails(mailbox: str = 'INBOX', limit: int = 10) -> list[dict]:
+    """List recent emails with subject, sender, and date."""
+    client = IMAP4(host=IMAP_HOST, port=IMAP_PORT, timeout=30)
+    await client.wait_hello_from_server()
+    await client.login(IMAP_USER, IMAP_PASS)
+    await client.select(mailbox)
+    
+    result = await client.search('ALL')
+    if result.result != 'OK':
+        await client.logout()
+        return []
+    
+    msg_ids = result.lines[0].decode().split()
+    msg_ids = msg_ids[-limit:][::-1]
+    
+    emails = []
+    for msg_id in msg_ids:
+        result = await client.fetch(msg_id, '(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])')
+        if result.result == 'OK':
+            for line in result.lines:
+                raw = bytes(line) if isinstance(line, (bytes, bytearray)) else None
+                if raw and len(raw) > 20:
+                    try:
+                        msg = message_from_bytes(raw)
+                        if msg.get('From') or msg.get('Subject'):
+                            emails.append({
+                                'id': msg_id,
+                                'from': decode_mime_header(msg.get('From', '')),
+                                'subject': decode_mime_header(msg.get('Subject', '')),
+                                'date': msg.get('Date', ''),
+                            })
+                            break
+                    except:
+                        pass
+    
+    await client.logout()
+    return emails
+
+
+@mcp.tool()
+async def get_email(message_id: str, mailbox: str = 'INBOX') -> dict:
+    """Get full email content by message ID."""
+    client = IMAP4(host=IMAP_HOST, port=IMAP_PORT, timeout=30)
+    await client.wait_hello_from_server()
+    await client.login(IMAP_USER, IMAP_PASS)
+    await client.select(mailbox)
+    
+    result = await client.fetch(message_id, '(RFC822)')
+    if result.result != 'OK':
+        await client.logout()
+        return {'error': 'Message not found'}
+    
+    raw_email = None
+    for line in result.lines:
+        if isinstance(line, (bytes, bytearray)) and len(line) > 500:
+            raw_email = bytes(line)
+            break
+    
+    if not raw_email:
+        await client.logout()
+        return {'error': 'Could not find message body'}
+    
+    try:
+        msg = message_from_bytes(raw_email)
+    except Exception as e:
+        await client.logout()
+        return {'error': f'Parse error: {e}'}
+    
+    body = ''
+    if msg.is_multipart():
+        for part in msg.walk():
+            ct = part.get_content_type()
+            if ct == 'text/plain':
+                payload = part.get_payload(decode=True)
+                if payload:
+                    body = payload.decode('utf-8', errors='replace')
+                    break
+            elif ct == 'text/html' and not body:
+                payload = part.get_payload(decode=True)
+                if payload:
+                    import re
+                    html = payload.decode('utf-8', errors='replace')
+                    body = re.sub(r'<[^>]+>', '', html)[:3000]
+    else:
+        payload = msg.get_payload(decode=True)
+        if payload:
+            body = payload.decode('utf-8', errors='replace')
+    
+    await client.logout()
     return {
-        "status": "ok",
-        "ssl_patch": "applied",
-        "backends": ["email"]
+        'id': message_id,
+        'from': decode_mime_header(msg.get('From', '')),
+        'to': decode_mime_header(msg.get('To', '')),
+        'subject': decode_mime_header(msg.get('Subject', '')),
+        'date': msg.get('Date', ''),
+        'body': body[:5000],
     }
 
-print("✓ Email backend loaded")
 
-# --- Future: Add more backends ---
-# When fastmcp mount() API stabilizes, we can aggregate multiple backends here.
-# For now, additional backends would need separate server processes.
+@mcp.tool()
+async def send_email(to: str, subject: str, body: str) -> dict:
+    """Send an email via SMTP."""
+    import aiosmtplib
+    from email.message import EmailMessage
+    
+    smtp_host = os.environ.get('PROTON_BRIDGE_HOST', '127.0.0.1')
+    smtp_port = int(os.environ.get('PROTON_BRIDGE_SMTP_PORT', '1025'))
+    smtp_user = os.environ.get('PROTON_BRIDGE_USER', '')
+    smtp_pass = os.environ.get('PROTON_BRIDGE_PASSWORD', '')
+    
+    msg = EmailMessage()
+    msg['From'] = smtp_user
+    msg['To'] = to
+    msg['Subject'] = subject
+    msg.set_content(body)
+    
+    await aiosmtplib.send(
+        msg,
+        hostname=smtp_host,
+        port=smtp_port,
+        username=smtp_user,
+        password=smtp_pass,
+        start_tls=True, validate_certs=False,
+    )
+    
+    return {'status': 'sent', 'to': to, 'subject': subject}
 
 
-if __name__ == "__main__":
+@mcp.tool()
+def health() -> dict:
+    """Health check."""
+    return {'status': 'ok'}
+
+
+class AuthMiddleware:
+    """Check X-MCP-Secret header."""
+    def __init__(self, app, secret):
+        self.app = app
+        self.secret = secret
+    
+    async def __call__(self, scope, receive, send):
+        if scope['type'] == 'http' and self.secret:
+            headers = {k.decode(): v.decode() for k, v in scope.get('headers', [])}
+            if headers.get('x-mcp-secret') != self.secret:
+                response = json.dumps({
+                    'jsonrpc': '2.0',
+                    'id': 'auth-error',
+                    'error': {'code': -32001, 'message': 'Unauthorized'}
+                }).encode()
+                await send({'type': 'http.response.start', 'status': 401,
+                           'headers': [(b'content-type', b'application/json')]})
+                await send({'type': 'http.response.body', 'body': response})
+                return
+        await self.app(scope, receive, send)
+
+
+def main():
     import uvicorn
-    import json
+    host = os.environ.get('ROUTER_HOST', '127.0.0.1')
+    port = int(os.environ.get('ROUTER_PORT', '8080'))
 
-    host = os.environ.get("ROUTER_HOST", "127.0.0.1")
-    port = int(os.environ.get("ROUTER_PORT", "8080"))
-    mcp_secret = os.environ.get("MCP_SECRET")
-
-    if not mcp_secret:
-        print("⚠ WARNING: MCP_SECRET not set - API key validation disabled!")
-    else:
-        print(f"✓ API key validation enabled")
-
-    print(f"Starting MCP Router (email) on {host}:{port}")
-
-    # Get the base app
-    base_app = email_mcp.streamable_http_app()
-
-    class AuthMiddleware:
-        """Validate X-MCP-Secret header and rewrite Host for tunnel compatibility."""
-
-        def __init__(self, app, secret: str | None):
-            self.app = app
-            self.secret = secret
-
-        async def __call__(self, scope, receive, send):
-            if scope["type"] == "http":
-                headers_dict = {k: v for k, v in scope["headers"]}
-
-                # Check API key if configured
-                if self.secret:
-                    provided_secret = headers_dict.get(b"x-mcp-secret", b"").decode()
-                    if provided_secret != self.secret:
-                        response = {
-                            "jsonrpc": "2.0",
-                            "id": "auth-error",
-                            "error": {"code": -32001, "message": "Unauthorized"}
-                        }
-                        body = json.dumps(response).encode()
-                        await send({
-                            "type": "http.response.start",
-                            "status": 401,
-                            "headers": [
-                                (b"content-type", b"application/json"),
-                                (b"content-length", str(len(body)).encode()),
-                            ],
-                        })
-                        await send({
-                            "type": "http.response.body",
-                            "body": body,
-                        })
-                        return
-
-                # Rewrite host header to localhost for MCP library validation
-                headers = [(k, v) for k, v in scope["headers"] if k != b"host"]
-                headers.append((b"host", b"127.0.0.1:8080"))
-                scope = dict(scope, headers=headers)
-
-            await self.app(scope, receive, send)
-
-    app = AuthMiddleware(base_app, mcp_secret)
+    app = mcp.http_app()
+    if MCP_SECRET:
+        print('API key auth enabled')
+        app = AuthMiddleware(app, MCP_SECRET)
 
     uvicorn.run(app, host=host, port=port)
+
+
+if __name__ == '__main__':
+    main()
