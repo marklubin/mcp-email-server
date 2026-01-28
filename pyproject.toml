@@ -10,6 +10,3 @@ dependencies = [
     "uvicorn>=0.30.0",
     "python-dotenv>=1.0.0",
 ]
-
-[project.scripts]
-mcp-email-server = "router.server:main"
