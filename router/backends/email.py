@@ -3,6 +3,7 @@
 import os
 from email.header import decode_header
 from email import message_from_bytes
+from email.utils import parsedate_to_datetime
 
 from fastmcp import FastMCP
 from aioimaplib import IMAP4
@@ -28,6 +29,25 @@ def decode_mime_header(header):
     return ''.join(decoded)
 
 
+def parse_email_date(date_str):
+    """Parse email date string to datetime for sorting."""
+    if not date_str:
+        return None
+    try:
+        return parsedate_to_datetime(date_str)
+    except Exception:
+        return None
+
+
+def sort_emails_by_date(emails, newest_first=True):
+    """Sort emails by date, newest first by default."""
+    return sorted(
+        emails,
+        key=lambda e: parse_email_date(e.get('date')) or parsedate_to_datetime('1 Jan 1970 00:00:00 +0000'),
+        reverse=newest_first
+    )
+
+
 async def get_imap_client():
     """Create and authenticate IMAP client."""
     client = IMAP4(host=IMAP_HOST, port=IMAP_PORT, timeout=30)
@@ -38,7 +58,7 @@ async def get_imap_client():
 
 @mcp.tool()
 async def list_emails(mailbox: str = 'INBOX', limit: int = 10) -> list[dict]:
-    """List recent emails with subject, sender, and date."""
+    """List recent emails with subject, sender, and date (newest first)."""
     client = await get_imap_client()
     await client.select(mailbox)
 
@@ -48,7 +68,9 @@ async def list_emails(mailbox: str = 'INBOX', limit: int = 10) -> list[dict]:
         return []
 
     msg_ids = result.lines[0].decode().split()
-    msg_ids = msg_ids[-limit:][::-1]
+    # Fetch more than limit since we'll sort by date
+    fetch_count = min(len(msg_ids), limit * 2)
+    msg_ids = msg_ids[-fetch_count:]
 
     emails = []
     for msg_id in msg_ids:
@@ -71,7 +93,8 @@ async def list_emails(mailbox: str = 'INBOX', limit: int = 10) -> list[dict]:
                         pass
 
     await client.logout()
-    return emails
+    # Sort by date (newest first) and limit results
+    return sort_emails_by_date(emails)[:limit]
 
 
 @mcp.tool()
@@ -111,8 +134,9 @@ async def search_emails(
         await client.logout()
         return []
 
-    # Most recent first, limited
-    msg_ids = msg_ids[-limit:][::-1]
+    # Fetch more than limit since we'll sort by date
+    fetch_count = min(len(msg_ids), limit * 2)
+    msg_ids = msg_ids[-fetch_count:]
 
     emails = []
     for msg_id in msg_ids:
@@ -135,7 +159,8 @@ async def search_emails(
                         pass
 
     await client.logout()
-    return emails
+    # Sort by date (newest first) and limit results
+    return sort_emails_by_date(emails)[:limit]
 
 
 @mcp.tool()
