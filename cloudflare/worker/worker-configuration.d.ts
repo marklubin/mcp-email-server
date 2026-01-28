@@ -10,6 +10,8 @@ declare namespace Cloudflare {
 		OAUTH_KV: KVNamespace;
 		AI: Ai;
 		MCP_OBJECT: DurableObjectNamespace<import("./src/index").MyMCP>;
+		MCP_BACKEND: Fetcher;  // Workers VPC binding to Cloudflare Tunnel
+		MCP_SECRET: string;    // Shared secret for backend auth
 	}
 }
 interface Env extends Cloudflare.Env {}

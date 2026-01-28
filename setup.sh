@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# MCP Email Server Setup Script
+# MCP Router Setup Script
 #
 set -euo pipefail
 
@@ -18,8 +18,8 @@ cd "$SCRIPT_DIR"
 
 CURRENT_USER="${SUDO_USER:-$USER}"
 
-info "MCP Email Server Setup"
-info "======================"
+info "MCP Router Setup"
+info "================"
 echo
 
 # --- Install uv ---
@@ -46,20 +46,49 @@ else
 fi
 
 # --- Systemd Services ---
-info "Installing systemd service..."
+info "Installing systemd services..."
 sudo cp services/mcp-router.service /etc/systemd/system/mcp-router@.service
+sudo cp services/cloudflared.service /etc/systemd/system/cloudflared.service
 sudo systemctl daemon-reload
-info "Systemd service installed"
+info "Systemd services installed"
+
+# --- Check cloudflared ---
+if command -v cloudflared &> /dev/null; then
+    info "cloudflared already installed"
+else
+    warn "cloudflared not installed. Install it to enable Cloudflare Tunnel."
+    echo "  curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb"
+    echo "  sudo dpkg -i cloudflared.deb"
+fi
 
 echo
 info "Setup complete!"
 echo
 echo "Next steps:"
+echo
 echo "  1. Edit .env with your credentials"
+echo
 echo "  2. Login to ProtonMail Bridge (one-time):"
 echo "     protonmail-bridge --cli"
-echo "  3. Start the service:"
+echo
+echo "  3. Start the MCP router service:"
 echo "     sudo systemctl enable --now mcp-router@$CURRENT_USER"
+echo
+echo "  4. Set up Cloudflare Tunnel (for private backend):"
+echo "     cloudflared tunnel login"
+echo "     cloudflared tunnel create mcp-router"
+echo "     # Copy cloudflare/tunnel-config.yml.example to ~/.cloudflared/config.yml"
+echo "     # Edit config.yml with your tunnel ID"
+echo "     sudo systemctl enable --now cloudflared"
+echo
+echo "  5. Create Workers VPC Service in Cloudflare Dashboard:"
+echo "     - Go to Workers & Pages -> Workers VPC"
+echo "     - Create service: mcp-router-vpc"
+echo "     - Select tunnel: mcp-router"
+echo "     - Target: http://127.0.0.1:8080"
+echo
+echo "  6. Deploy the Cloudflare Worker:"
+echo "     cd cloudflare/worker && npx wrangler deploy"
 echo
 echo "To run manually:"
 echo "  uv run mcp-email-server"

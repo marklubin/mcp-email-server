@@ -13,9 +13,16 @@
 	 * - COOKIE_ENCRYPTION_KEY
 	 * - MCP_SECRET (shared secret for backend auth)
 	 */
-	"vars": {
-		"BACKEND_URL": "https://oxnard.kairix.org"
-	},
+	"vars": {},
+
+	// Workers VPC binding - connects to Cloudflare Tunnel
+	"services": [
+		{
+			"binding": "MCP_BACKEND",
+			"service": "mcp-router-vpc"
+		}
+	],
+
 	"kv_namespaces": [
 		{
 			"binding": "OAUTH_KV",

@@ -1,46 +1,46 @@
-# Cloudflare Tunnel Configuration
-# This file is a reference for the tunnel configuration.
-# The actual tunnel is configured via the Cloudflare dashboard or wrangler.
-
-# Tunnel name: mcp-router (or your chosen name)
-# Tunnel ID: <your-tunnel-id>
-
-tunnel: <tunnel-id>
-credentials-file: /home/<user>/.cloudflared/<tunnel-id>.json
-
-ingress:
-  # Route MCP traffic to the router
-  - hostname: mcp.yourdomain.com
-    service: http://localhost:8080
-    originRequest:
-      noTLSVerify: false
-
-  # Health check endpoint
-  - hostname: mcp.yourdomain.com
-    path: /health
-    service: http://localhost:8080
-
-  # Catch-all (required)
-  - service: http_status:404
-
-# To create and configure a tunnel:
+# Cloudflare Tunnel Configuration for Workers VPC
 #
-# 1. Install cloudflared:
+# This tunnel is accessed ONLY via Workers VPC - no public DNS exposure.
+# Copy this to ~/.cloudflared/config.yml on the server and fill in your tunnel ID.
+
+tunnel: <TUNNEL_ID>
+credentials-file: /home/mark/.cloudflared/<TUNNEL_ID>.json
+
+# No hostname field = no public DNS routing
+# Only Workers VPC can reach this tunnel
+ingress:
+  - service: http://127.0.0.1:8080
+
+# Setup instructions:
+#
+# 1. Install cloudflared (if not already):
 #    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
 #    sudo dpkg -i cloudflared.deb
 #
-# 2. Authenticate:
+# 2. Login to Cloudflare (opens browser):
 #    cloudflared tunnel login
 #
 # 3. Create tunnel:
 #    cloudflared tunnel create mcp-router
+#    # Note the tunnel ID from output!
 #
-# 4. Configure DNS (in Cloudflare dashboard or via CLI):
-#    cloudflared tunnel route dns mcp-router mcp.yourdomain.com
+# 4. Create config file:
+#    cp tunnel-config.yml.example ~/.cloudflared/config.yml
+#    # Edit config.yml and replace <TUNNEL_ID> with actual ID
 #
-# 5. Run tunnel:
-#    cloudflared tunnel run mcp-router
-#
-# 6. Or install as service:
-#    sudo cloudflared service install
+# 5. Install systemd service:
+#    sudo cp services/cloudflared.service /etc/systemd/system/
+#    sudo systemctl daemon-reload
 #    sudo systemctl enable --now cloudflared
+#
+# 6. Create Workers VPC Service (Cloudflare Dashboard):
+#    - Go to Workers & Pages → Workers VPC
+#    - Create Service: mcp-router-vpc
+#    - Select tunnel: mcp-router
+#    - Target: http://127.0.0.1:8080
+#
+# Or via wrangler CLI:
+#    npx wrangler vpc create mcp-router-vpc --tunnel-id <TUNNEL_ID> --target http://127.0.0.1:8080
+#
+# 7. Deploy the worker:
+#    cd cloudflare/worker && npx wrangler deploy

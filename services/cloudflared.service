@@ -1,0 +1,16 @@
+[Unit]
+Description=Cloudflare Tunnel for MCP Router
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mark
+ExecStart=/usr/bin/cloudflared tunnel run mcp-router
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

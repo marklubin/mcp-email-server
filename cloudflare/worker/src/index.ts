@@ -13,13 +13,16 @@ type Props = {
  * MCP Proxy Handler
  *
  * After OAuth authentication, proxies MCP requests to the backend
- * server running on oxnard via Cloudflare Tunnel.
+ * server via Workers VPC (Cloudflare Tunnel). No public DNS exposure.
  */
 async function handleMCPProxy(request: Request, env: Env, authProps?: AuthProps<Props>): Promise<Response> {
 	const url = new URL(request.url);
-	const backendUrl = new URL(url.pathname + url.search, env.BACKEND_URL);
 
-	console.log(`[MCP Proxy] ${request.method} ${url.pathname} -> ${backendUrl.toString()}`);
+	// Build request to private backend via VPC
+	// The hostname is arbitrary - VPC routes based on the binding
+	const backendUrl = `http://mcp-router.internal${url.pathname}${url.search}`;
+
+	console.log(`[MCP Proxy] ${request.method} ${url.pathname} -> VPC backend`);
 	console.log(`[MCP Proxy] MCP_SECRET set:`, !!env.MCP_SECRET, `length:`, env.MCP_SECRET?.length || 0);
 
 	// Clone headers and add our shared secret
@@ -34,18 +37,17 @@ async function handleMCPProxy(request: Request, env: Env, authProps?: AuthProps<
 	}
 
 	headers.set("X-MCP-Secret", env.MCP_SECRET);
-	headers.set("X-Bypass-WAF", env.MCP_SECRET); // Use shared secret as bypass token
-
-	const backendRequest = new Request(backendUrl.toString(), {
-		method: request.method,
-		headers,
-		body: request.body,
-		// @ts-ignore - duplex needed for streaming
-		duplex: "half",
-	});
 
 	try {
-		const response = await fetch(backendRequest);
+		// Use VPC binding instead of public fetch
+		const response = await env.MCP_BACKEND.fetch(backendUrl, {
+			method: request.method,
+			headers,
+			body: request.body,
+			// @ts-ignore - duplex needed for streaming
+			duplex: "half",
+		});
+
 		const body = await response.text();
 		console.log(`[MCP Proxy] Backend response: ${response.status} - ${body.substring(0, 200)}`);
 		return new Response(body, {
@@ -78,14 +80,14 @@ function createMCPHandler(path: string) {
 	};
 }
 
-// Health check that tests backend connectivity (no auth required)
+// Health check that tests backend connectivity via VPC (no auth required)
 async function handleHealthCheck(request: Request, env: Env): Promise<Response | null> {
 	const url = new URL(request.url);
 	if (url.pathname !== "/health") return null;
 
 	try {
-		const backendUrl = new URL("/mcp", env.BACKEND_URL);
-		const response = await fetch(backendUrl.toString(), {
+		// Use VPC binding for health check
+		const response = await env.MCP_BACKEND.fetch("http://mcp-router.internal/mcp", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",

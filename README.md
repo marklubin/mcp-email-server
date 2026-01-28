@@ -5,11 +5,13 @@ Extensible MCP server that aggregates multiple backends behind a single endpoint
 ## Architecture
 
 ```
-Claude → CF Worker (OAuth) → nginx/SSL → MCP Router → [Backends]
-                                              ↓
-                                         email backend → ProtonMail Bridge
-                                         (add more backends here)
+Claude → CF Worker (OAuth) → Workers VPC → CF Tunnel → MCP Router → [Backends]
+                                   │                        ↓
+                            (private backbone)         email backend → ProtonMail Bridge
+                                                       (add more backends here)
 ```
+
+**Security:** No public DNS exposure. Traffic flows through Cloudflare's private network via Workers VPC binding to a Cloudflare Tunnel with no public hostname.
 
 ## Quick Start
 
@@ -47,6 +49,28 @@ Or with systemd:
 ```bash
 ./setup.sh
 sudo systemctl enable --now mcp-router@$USER
+```
+
+### 5. Set up Cloudflare Tunnel (for private backend)
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create mcp-router
+# Configure ~/.cloudflared/config.yml (see cloudflare/tunnel-config.yml.example)
+sudo systemctl enable --now cloudflared
+```
+
+### 6. Create Workers VPC Service
+
+In Cloudflare Dashboard → Workers & Pages → Workers VPC:
+- Create service: `mcp-router-vpc`
+- Select tunnel: `mcp-router`
+- Target: `http://127.0.0.1:8080`
+
+### 7. Deploy Worker
+
+```bash
+cd cloudflare/worker && npx wrangler deploy
 ```
 
 ## Tools
@@ -126,10 +150,28 @@ mcp-infrastructure/
 │       ├── __init__.py
 │       └── email.py        # Email backend (ProtonMail)
 ├── services/
-│   └── mcp-router.service  # systemd template
+│   ├── mcp-router.service  # systemd template for router
+│   └── cloudflared.service # systemd service for tunnel
 ├── cloudflare/
-│   └── worker/             # CF Worker for OAuth
+│   ├── tunnel-config.yml.example  # Tunnel config template
+│   └── worker/             # CF Worker for OAuth + VPC proxy
+├── scripts/
+│   ├── deploy.sh           # Push and deploy to remote
+│   ├── logs.sh             # View service logs
+│   ├── status.sh           # Check service status
+│   ├── tunnel.sh           # Manage Cloudflare Tunnel
+│   └── test-email.sh       # Test email tools
 ├── setup.sh                # One-shot setup script
 ├── pyproject.toml          # Python dependencies
 └── .env.example            # Config template
 ```
+
+## Management Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/deploy.sh` | Push and deploy to remote |
+| `scripts/logs.sh [n]` | View last n log lines |
+| `scripts/status.sh` | Check service status |
+| `scripts/tunnel.sh [status\|logs\|restart]` | Manage tunnel |
+| `scripts/test-email.sh` | Test email tools |
