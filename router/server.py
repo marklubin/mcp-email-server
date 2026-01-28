@@ -47,11 +47,30 @@ print("✓ Email backend loaded")
 
 if __name__ == "__main__":
     import uvicorn
+    from starlette.middleware import Middleware
+    from starlette.applications import Starlette
 
     host = os.environ.get("ROUTER_HOST", "127.0.0.1")
     port = int(os.environ.get("ROUTER_PORT", "8080"))
 
     print(f"Starting MCP Router (email) on {host}:{port}")
-    # Use the ASGI app directly with uvicorn for host/port control
-    app = email_mcp.streamable_http_app()
+
+    # Get the base app
+    base_app = email_mcp.streamable_http_app()
+
+    # Wrap with middleware to rewrite Host header for tunnel compatibility
+    class HostRewriteMiddleware:
+        def __init__(self, app):
+            self.app = app
+
+        async def __call__(self, scope, receive, send):
+            if scope["type"] == "http":
+                # Rewrite host header to localhost for MCP library validation
+                headers = [(k, v) for k, v in scope["headers"] if k != b"host"]
+                headers.append((b"host", b"127.0.0.1:8080"))
+                scope = dict(scope, headers=headers)
+            await self.app(scope, receive, send)
+
+    app = HostRewriteMiddleware(base_app)
+
     uvicorn.run(app, host=host, port=port)
