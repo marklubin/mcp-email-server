@@ -1,0 +1,31 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "mcp-proxy",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-03-10",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	/**
+	 * Secrets (set via wrangler secret put):
+	 * - GITHUB_CLIENT_ID
+	 * - GITHUB_CLIENT_SECRET
+	 * - COOKIE_ENCRYPTION_KEY
+	 * - MCP_SECRET (shared secret for backend auth)
+	 */
+	"vars": {
+		"BACKEND_URL": "https://oxnard.kairix.org"
+	},
+	"kv_namespaces": [
+		{
+			"binding": "OAUTH_KV",
+			"id": "db6b112174f2449ebe3748708b948720"
+		}
+	],
+	"observability": {
+		"enabled": true
+	},
+	"dev": {
+		"port": 8788
+	}
+}
