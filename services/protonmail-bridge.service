@@ -1,0 +1,24 @@
+[Unit]
+Description=ProtonMail Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+Environment=DISPLAY=:0
+
+# Run bridge in non-interactive mode
+ExecStart=/usr/bin/protonmail-bridge --noninteractive
+
+# Restart on failure
+Restart=on-failure
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=protonmail-bridge
+
+[Install]
+WantedBy=multi-user.target

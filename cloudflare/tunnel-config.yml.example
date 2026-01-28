@@ -1,0 +1,46 @@
+# Cloudflare Tunnel Configuration
+# This file is a reference for the tunnel configuration.
+# The actual tunnel is configured via the Cloudflare dashboard or wrangler.
+
+# Tunnel name: mcp-router (or your chosen name)
+# Tunnel ID: <your-tunnel-id>
+
+tunnel: <tunnel-id>
+credentials-file: /home/<user>/.cloudflared/<tunnel-id>.json
+
+ingress:
+  # Route MCP traffic to the router
+  - hostname: mcp.yourdomain.com
+    service: http://localhost:8080
+    originRequest:
+      noTLSVerify: false
+
+  # Health check endpoint
+  - hostname: mcp.yourdomain.com
+    path: /health
+    service: http://localhost:8080
+
+  # Catch-all (required)
+  - service: http_status:404
+
+# To create and configure a tunnel:
+#
+# 1. Install cloudflared:
+#    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
+#    sudo dpkg -i cloudflared.deb
+#
+# 2. Authenticate:
+#    cloudflared tunnel login
+#
+# 3. Create tunnel:
+#    cloudflared tunnel create mcp-router
+#
+# 4. Configure DNS (in Cloudflare dashboard or via CLI):
+#    cloudflared tunnel route dns mcp-router mcp.yourdomain.com
+#
+# 5. Run tunnel:
+#    cloudflared tunnel run mcp-router
+#
+# 6. Or install as service:
+#    sudo cloudflared service install
+#    sudo systemctl enable --now cloudflared

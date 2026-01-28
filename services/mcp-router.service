@@ -1,0 +1,27 @@
+[Unit]
+Description=MCP Router
+After=network-online.target protonmail-bridge.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/mcp-infrastructure
+
+# Load environment from .env
+EnvironmentFile=/home/%i/mcp-infrastructure/.env
+
+# Use the virtual environment
+ExecStart=/home/%i/mcp-infrastructure/.venv/bin/python router/server.py
+
+# Restart on failure
+Restart=on-failure
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mcp-router
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+# zerolib Email Server Configuration
+# Copy this file to config.toml and fill in your ProtonMail Bridge credentials
+
+[imap]
+host = "127.0.0.1"
+port = 1143
+username = "your-email@proton.me"
+password = "bridge-generated-password"
+use_ssl = true
+
+[smtp]
+host = "127.0.0.1"
+port = 1025
+username = "your-email@proton.me"
+password = "bridge-generated-password"
+use_ssl = true
+
+[defaults]
+# Default sender for outgoing emails
+from_address = "your-email@proton.me"
