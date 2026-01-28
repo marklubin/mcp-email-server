@@ -50,3 +50,4 @@ config.toml
 !tsconfig.json
 wrangler.toml
 !cloudflare/worker/wrangler.toml
+node_modules/
