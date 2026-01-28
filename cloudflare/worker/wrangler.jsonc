@@ -16,10 +16,11 @@
 	"vars": {},
 
 	// Workers VPC binding - connects to Cloudflare Tunnel
-	"services": [
+	"vpc_services": [
 		{
 			"binding": "MCP_BACKEND",
-			"service": "mcp-router-vpc"
+			"service_id": "019c06bc-943b-7e33-afa4-033d4c820b68",
+			"remote": true
 		}
 	],
 

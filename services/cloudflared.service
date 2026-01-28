@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=mark
-ExecStart=/usr/bin/cloudflared tunnel run mcp-router
+ExecStart=/usr/bin/cloudflared tunnel run oxnard-mcp
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
