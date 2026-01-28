@@ -12,7 +12,7 @@ WorkingDirectory=/home/%i/mcp-infrastructure
 EnvironmentFile=/home/%i/mcp-infrastructure/.env
 
 # Run with uv
-ExecStart=/home/%i/.local/bin/uv run mcp-email-server
+ExecStart=/home/%i/.local/bin/uv run python router/server.py
 
 Restart=on-failure
 RestartSec=5
