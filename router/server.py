@@ -47,30 +47,64 @@ print("✓ Email backend loaded")
 
 if __name__ == "__main__":
     import uvicorn
-    from starlette.middleware import Middleware
-    from starlette.applications import Starlette
+    import json
 
     host = os.environ.get("ROUTER_HOST", "127.0.0.1")
     port = int(os.environ.get("ROUTER_PORT", "8080"))
+    mcp_secret = os.environ.get("MCP_SECRET")
+
+    if not mcp_secret:
+        print("⚠ WARNING: MCP_SECRET not set - API key validation disabled!")
+    else:
+        print(f"✓ API key validation enabled")
 
     print(f"Starting MCP Router (email) on {host}:{port}")
 
     # Get the base app
     base_app = email_mcp.streamable_http_app()
 
-    # Wrap with middleware to rewrite Host header for tunnel compatibility
-    class HostRewriteMiddleware:
-        def __init__(self, app):
+    class AuthMiddleware:
+        """Validate X-MCP-Secret header and rewrite Host for tunnel compatibility."""
+
+        def __init__(self, app, secret: str | None):
             self.app = app
+            self.secret = secret
 
         async def __call__(self, scope, receive, send):
             if scope["type"] == "http":
+                headers_dict = {k: v for k, v in scope["headers"]}
+
+                # Check API key if configured
+                if self.secret:
+                    provided_secret = headers_dict.get(b"x-mcp-secret", b"").decode()
+                    if provided_secret != self.secret:
+                        response = {
+                            "jsonrpc": "2.0",
+                            "id": "auth-error",
+                            "error": {"code": -32001, "message": "Unauthorized"}
+                        }
+                        body = json.dumps(response).encode()
+                        await send({
+                            "type": "http.response.start",
+                            "status": 401,
+                            "headers": [
+                                (b"content-type", b"application/json"),
+                                (b"content-length", str(len(body)).encode()),
+                            ],
+                        })
+                        await send({
+                            "type": "http.response.body",
+                            "body": body,
+                        })
+                        return
+
                 # Rewrite host header to localhost for MCP library validation
                 headers = [(k, v) for k, v in scope["headers"] if k != b"host"]
                 headers.append((b"host", b"127.0.0.1:8080"))
                 scope = dict(scope, headers=headers)
+
             await self.app(scope, receive, send)
 
-    app = HostRewriteMiddleware(base_app)
+    app = AuthMiddleware(base_app, mcp_secret)
 
     uvicorn.run(app, host=host, port=port)
