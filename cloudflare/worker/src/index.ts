@@ -1,20 +1,21 @@
 /**
  * MCP Proxy Worker
  *
- * Handles OAuth authentication for Claude and proxies MCP requests
- * to the backend tunnel with shared secret authentication.
+ * Handles GitHub OAuth authentication for Claude and proxies MCP requests
+ * to the backend tunnel. Only allows access for authorized GitHub users.
  */
 
 interface Env {
   BACKEND_URL: string;
   MCP_SECRET: string;
-  OAUTH_CLIENT_SECRET?: string;
-  // KV namespace for storing OAuth tokens/sessions (optional)
-  // SESSIONS?: KVNamespace;
+  GITHUB_CLIENT_ID: string;
+  GITHUB_CLIENT_SECRET: string;
+  ALLOWED_USERS: string; // Comma-separated GitHub usernames
 }
 
-// In-memory token store (for demo - use KV in production)
+// In-memory stores (use KV in production for persistence across instances)
 const tokens = new Map<string, { userId: string; expiresAt: number }>();
+const pendingAuth = new Map<string, { redirectUri: string; state: string; codeChallenge?: string }>();
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -31,19 +32,19 @@ export default {
       return handleOAuthMetadata(url);
     }
 
-    // OAuth authorize endpoint
+    // OAuth authorize endpoint - redirects to GitHub
     if (path === "/authorize") {
-      return handleAuthorize(request, url);
+      return handleAuthorize(request, url, env);
+    }
+
+    // GitHub callback - exchanges code and validates user
+    if (path === "/callback") {
+      return handleGitHubCallback(request, url, env);
     }
 
     // OAuth token endpoint
     if (path === "/token") {
       return handleToken(request, env);
-    }
-
-    // OAuth callback (for completing the flow)
-    if (path === "/callback") {
-      return handleCallback(request, url);
     }
 
     // MCP endpoints - require auth and proxy to backend
@@ -94,38 +95,33 @@ function handleOAuthMetadata(url: URL): Response {
   });
 }
 
-function handleAuthorize(request: Request, url: URL): Response {
-  const clientId = url.searchParams.get("client_id");
+function handleAuthorize(request: Request, url: URL, env: Env): Response {
   const redirectUri = url.searchParams.get("redirect_uri");
   const state = url.searchParams.get("state");
   const codeChallenge = url.searchParams.get("code_challenge");
-  const codeChallengeMethod = url.searchParams.get("code_challenge_method");
 
-  if (!clientId || !redirectUri || !state) {
+  if (!redirectUri || !state) {
     return new Response("Missing required parameters", { status: 400 });
   }
 
-  // For now, auto-approve (in production, show consent screen)
-  // Generate an authorization code
-  const code = crypto.randomUUID();
+  // Generate a unique ID to track this auth flow
+  const authId = crypto.randomUUID();
 
-  // Store code with metadata (in production, use KV)
-  const codeData = {
-    clientId,
+  // Store the original redirect info
+  pendingAuth.set(authId, {
     redirectUri,
+    state,
     codeChallenge,
-    codeChallengeMethod,
-    createdAt: Date.now(),
-  };
-  // Store in memory (demo only - use KV in production)
-  tokens.set(`code:${code}`, { userId: "demo-user", expiresAt: Date.now() + 600000 });
+  });
 
-  // Redirect back to client with code
-  const redirectUrl = new URL(redirectUri);
-  redirectUrl.searchParams.set("code", code);
-  redirectUrl.searchParams.set("state", state);
+  // Build GitHub OAuth URL
+  const githubUrl = new URL("https://github.com/login/oauth/authorize");
+  githubUrl.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
+  githubUrl.searchParams.set("redirect_uri", `${url.protocol}//${url.host}/callback`);
+  githubUrl.searchParams.set("state", authId); // Use authId to correlate
+  githubUrl.searchParams.set("scope", "read:user");
 
-  return Response.redirect(redirectUrl.toString(), 302);
+  return Response.redirect(githubUrl.toString(), 302);
 }
 
 async function handleToken(request: Request, env: Env): Promise<Response> {
@@ -194,16 +190,75 @@ async function handleToken(request: Request, env: Env): Promise<Response> {
   });
 }
 
-function handleCallback(request: Request, url: URL): Response {
-  // This would be used if we had an external identity provider
-  // For now, just show the code for debugging
+async function handleGitHubCallback(request: Request, url: URL, env: Env): Promise<Response> {
   const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
+  const authId = url.searchParams.get("state");
 
-  return new Response(
-    `Authorization complete. Code: ${code}, State: ${state}`,
-    { headers: { "Content-Type": "text/plain" } }
-  );
+  if (!code || !authId) {
+    return new Response("Missing code or state", { status: 400 });
+  }
+
+  // Retrieve the pending auth request
+  const pending = pendingAuth.get(authId);
+  if (!pending) {
+    return new Response("Invalid or expired auth session", { status: 400 });
+  }
+  pendingAuth.delete(authId);
+
+  // Exchange code for GitHub access token
+  const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
+    method: "POST",
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      client_id: env.GITHUB_CLIENT_ID,
+      client_secret: env.GITHUB_CLIENT_SECRET,
+      code,
+    }),
+  });
+
+  const tokenData = await tokenResponse.json() as { access_token?: string; error?: string };
+  if (!tokenData.access_token) {
+    return new Response(`GitHub OAuth failed: ${tokenData.error || "unknown error"}`, { status: 400 });
+  }
+
+  // Get GitHub user info
+  const userResponse = await fetch("https://api.github.com/user", {
+    headers: {
+      "Authorization": `Bearer ${tokenData.access_token}`,
+      "User-Agent": "MCP-Proxy-Worker",
+    },
+  });
+
+  const userData = await userResponse.json() as { login?: string };
+  if (!userData.login) {
+    return new Response("Failed to get GitHub user info", { status: 400 });
+  }
+
+  // Check if user is allowed
+  const allowedUsers = env.ALLOWED_USERS.split(",").map(u => u.trim().toLowerCase());
+  if (!allowedUsers.includes(userData.login.toLowerCase())) {
+    return new Response(
+      `Access denied. User '${userData.login}' is not authorized.`,
+      { status: 403 }
+    );
+  }
+
+  // User is authorized - generate our own auth code
+  const ourCode = crypto.randomUUID();
+  tokens.set(`code:${ourCode}`, {
+    userId: userData.login,
+    expiresAt: Date.now() + 600000, // 10 minutes
+  });
+
+  // Redirect back to Claude with our code
+  const redirectUrl = new URL(pending.redirectUri);
+  redirectUrl.searchParams.set("code", ourCode);
+  redirectUrl.searchParams.set("state", pending.state);
+
+  return Response.redirect(redirectUrl.toString(), 302);
 }
 
 async function handleMCPProxy(request: Request, env: Env, url: URL): Promise<Response> {

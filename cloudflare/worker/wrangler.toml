@@ -4,8 +4,9 @@ compatibility_date = "2024-12-01"
 
 [vars]
 BACKEND_URL = "https://oxnard.kairix.org"
+ALLOWED_USERS = "marklubin"
 
 # Secrets (set via `wrangler secret put`):
 # - MCP_SECRET: shared secret for backend auth
-# - OAUTH_CLIENT_ID: OAuth client ID (optional, for additional validation)
-# - OAUTH_CLIENT_SECRET: OAuth client secret for token exchange
+# - GITHUB_CLIENT_ID: GitHub OAuth App client ID
+# - GITHUB_CLIENT_SECRET: GitHub OAuth App client secret
