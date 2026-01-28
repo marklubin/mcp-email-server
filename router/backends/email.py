@@ -39,6 +39,16 @@ def parse_email_date(date_str):
         return None
 
 
+def format_local_time(date_str):
+    """Convert email date to local time string."""
+    parsed = parse_email_date(date_str)
+    if not parsed:
+        return None
+    # Convert to local time
+    local_dt = parsed.astimezone()
+    return local_dt.strftime('%Y-%m-%d %H:%M')
+
+
 def sort_emails_by_date(emails, newest_first=True):
     """Sort emails by date, newest first by default."""
     return sorted(
@@ -82,11 +92,13 @@ async def list_emails(mailbox: str = 'INBOX', limit: int = 10) -> list[dict]:
                     try:
                         msg = message_from_bytes(raw)
                         if msg.get('From') or msg.get('Subject'):
+                            date_raw = msg.get('Date', '')
                             emails.append({
                                 'id': msg_id,
                                 'from': decode_mime_header(msg.get('From', '')),
                                 'subject': decode_mime_header(msg.get('Subject', '')),
-                                'date': msg.get('Date', ''),
+                                'date': date_raw,
+                                'local_time': format_local_time(date_raw),
                             })
                             break
                     except:
@@ -148,11 +160,13 @@ async def search_emails(
                     try:
                         msg = message_from_bytes(raw)
                         if msg.get('From') or msg.get('Subject'):
+                            date_raw = msg.get('Date', '')
                             emails.append({
                                 'id': msg_id,
                                 'from': decode_mime_header(msg.get('From', '')),
                                 'subject': decode_mime_header(msg.get('Subject', '')),
-                                'date': msg.get('Date', ''),
+                                'date': date_raw,
+                                'local_time': format_local_time(date_raw),
                             })
                             break
                     except:
@@ -211,12 +225,14 @@ async def get_email(message_id: str, mailbox: str = 'INBOX') -> dict:
             body = payload.decode('utf-8', errors='replace')
 
     await client.logout()
+    date_raw = msg.get('Date', '')
     return {
         'id': message_id,
         'from': decode_mime_header(msg.get('From', '')),
         'to': decode_mime_header(msg.get('To', '')),
         'subject': decode_mime_header(msg.get('Subject', '')),
-        'date': msg.get('Date', ''),
+        'date': date_raw,
+        'local_time': format_local_time(date_raw),
         'body': body[:5000],
     }
 
