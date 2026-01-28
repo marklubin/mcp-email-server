@@ -44,7 +44,9 @@ Thumbs.db
 config.toml
 !config.toml.example
 
-# Cloudflare credentials
+# Cloudflare credentials (but keep worker config)
 *.json
 !package.json
+!tsconfig.json
 wrangler.toml
+!cloudflare/worker/wrangler.toml

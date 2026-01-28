@@ -1,0 +1,11 @@
+name = "mcp-proxy"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+[vars]
+BACKEND_URL = "https://oxnard.kairix.org"
+
+# Secrets (set via `wrangler secret put`):
+# - MCP_SECRET: shared secret for backend auth
+# - OAUTH_CLIENT_ID: OAuth client ID (optional, for additional validation)
+# - OAUTH_CLIENT_SECRET: OAuth client secret for token exchange
