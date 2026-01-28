@@ -8,6 +8,7 @@ To add a new backend:
 
 import os
 import json
+import subprocess
 
 from fastmcp import FastMCP
 
@@ -29,6 +30,44 @@ router.mount(email.mcp, prefix='email')
 def health() -> dict:
     """Health check for the MCP router."""
     return {'status': 'ok', 'backends': ['email']}
+
+
+@router.tool()
+def logs(lines: int = 50, service: str = "mcp-router") -> dict:
+    """Tail the last N lines of service logs.
+
+    Args:
+        lines: Number of log lines to return (default: 50, max: 500)
+        service: Service to get logs for - "mcp-router" or "cloudflared" (default: mcp-router)
+    """
+    lines = min(max(1, lines), 500)  # Clamp between 1-500
+
+    service_map = {
+        "mcp-router": "mcp-router@mark",
+        "cloudflared": "cloudflared",
+    }
+
+    unit = service_map.get(service)
+    if not unit:
+        return {'error': f'Unknown service: {service}. Valid: {list(service_map.keys())}'}
+
+    try:
+        result = subprocess.run(
+            ['journalctl', '-u', unit, '-n', str(lines), '--no-pager'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        return {
+            'service': service,
+            'lines': lines,
+            'logs': result.stdout,
+            'stderr': result.stderr if result.stderr else None
+        }
+    except subprocess.TimeoutExpired:
+        return {'error': 'Timeout reading logs'}
+    except Exception as e:
+        return {'error': str(e)}
 
 
 class AuthMiddleware:
