@@ -14,22 +14,20 @@ from fastmcp import FastMCP
 
 # Import backends
 from backends import email
+from backends import kp3
 
 MCP_SECRET = os.environ.get('MCP_SECRET', '')
 
 # Create router and mount backends
 router = FastMCP('mcp-router')
 router.mount(email.mcp, prefix='email')
-
-# Add more backends here:
-# from backends import calendar
-# router.mount(calendar.mcp, prefix='calendar')
+router.mount(kp3.mcp, prefix='kp3')
 
 
 @router.tool()
 def health() -> dict:
     """Health check for the MCP router."""
-    return {'status': 'ok', 'backends': ['email']}
+    return {'status': 'ok', 'backends': ['email', 'kp3']}
 
 
 @router.tool()
@@ -108,7 +106,7 @@ def main():
         app = AuthMiddleware(app, MCP_SECRET)
 
     print(f'MCP Router starting on {host}:{port}')
-    print('Mounted backends: email')
+    print('Mounted backends: email, kp3')
     uvicorn.run(app, host=host, port=port)
 
 

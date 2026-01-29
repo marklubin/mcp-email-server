@@ -1,0 +1,19 @@
+[Unit]
+Description=KP3 Service (Podman Compose)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/mark/kairix/kp3
+ExecStart=/usr/bin/podman compose -f compose.standalone.yml up
+ExecStop=/usr/bin/podman compose -f compose.standalone.yml down
+Restart=on-failure
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kp3
+
+[Install]
+WantedBy=multi-user.target
