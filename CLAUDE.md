@@ -30,6 +30,32 @@ Claude → CF Worker (OAuth) → Workers VPC → CF Tunnel → MCP Router → [B
 - `services/mcp-router.service` - systemd service template for MCP router
 - `services/cloudflared.service` - systemd service for Cloudflare Tunnel
 
+## Development Journal
+
+See `JOURNAL.md` for a log of work sessions on this repo.
+
+### Journal Protocol
+
+After completing a significant work session, add an entry to `JOURNAL.md`:
+
+```markdown
+## YYYY-MM-DD: Brief Title
+
+**Goal:** What you set out to accomplish.
+
+**Changes:**
+- Bullet points of what was done
+
+**Result:** Outcome and any notable learnings.
+
+**Files touched:**
+- List of key files modified
+```
+
+Keep entries concise. Focus on *what* and *why*, not exhaustive details.
+
+---
+
 ## Development Workflow
 
 ### Local Changes
