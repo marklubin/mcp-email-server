@@ -16,7 +16,14 @@ Short entries documenting each episode of work on this repo.
 - Updated kp3 compose to expose port 8081 (avoiding conflict with MCP router on 8080)
 - Added KP3_HOST, KP3_PORT, KP3_AGENT_ID to remote .env
 
-**Result:** kp3 backend is mounted and routable. The kp3 service runs via podman compose on port 8081. Note: OpenAI API calls from container are timing out - needs network/API key investigation.
+**Result:** kp3 backend is mounted and routable. The kp3 service runs via podman compose on port 8081.
+
+**UFW fix:** Container network traffic was being blocked by UFW's default `deny (routed)` policy. Added rules:
+```bash
+sudo ufw route allow from 10.89.0.0/24
+sudo ufw route allow to 10.89.0.0/24
+sudo ufw allow in on podman1 from 10.89.0.0/24 to 10.89.0.1 port 53
+```
 
 **Files touched:**
 - `router/backends/kp3.py` - new
@@ -25,6 +32,7 @@ Short entries documenting each episode of work on this repo.
 - `services/kp3-podman.service` - new
 - Remote: `~/kairix/kp3/compose.standalone.yml` - port 8081
 - Remote: `~/mcp-infrastructure/.env` - kp3 env vars
+- Remote: UFW rules for podman network
 
 ---
 
