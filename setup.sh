@@ -45,10 +45,40 @@ else
     info ".env file exists"
 fi
 
+# --- Install Xvfb ---
+info "Checking Xvfb..."
+if command -v Xvfb &> /dev/null; then
+    info "Xvfb already installed"
+else
+    info "Installing Xvfb..."
+    sudo apt-get update -qq
+    sudo apt-get install -y xvfb
+    info "Xvfb installed"
+fi
+
+# --- Install Brave ---
+info "Checking Brave browser..."
+if command -v brave-browser &> /dev/null; then
+    info "Brave browser already installed"
+else
+    info "Installing Brave browser..."
+    sudo apt-get install -y curl
+    sudo curl -fsSLo /usr/share/keyrings/brave-browser-archive-keyring.gpg https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main" | sudo tee /etc/apt/sources.list.d/brave-browser-release.list
+    sudo apt-get update -qq
+    sudo apt-get install -y brave-browser
+    info "Brave browser installed"
+fi
+
+# --- Install Playwright dependencies ---
+info "Installing Playwright system dependencies..."
+uv run playwright install-deps chromium 2>/dev/null || warn "Could not install Playwright deps (may need sudo)"
+
 # --- Systemd Services ---
 info "Installing systemd services..."
 sudo cp services/mcp-router.service /etc/systemd/system/mcp-router@.service
 sudo cp services/cloudflared.service /etc/systemd/system/cloudflared.service
+sudo cp services/headless-brave.service /etc/systemd/system/headless-brave@.service
 sudo systemctl daemon-reload
 info "Systemd services installed"
 
@@ -71,23 +101,26 @@ echo
 echo "  2. Login to ProtonMail Bridge (one-time):"
 echo "     protonmail-bridge --cli"
 echo
-echo "  3. Start the MCP router service:"
+echo "  3. Start the headless browser service:"
+echo "     sudo systemctl enable --now headless-brave@$CURRENT_USER"
+echo
+echo "  4. Start the MCP router service:"
 echo "     sudo systemctl enable --now mcp-router@$CURRENT_USER"
 echo
-echo "  4. Set up Cloudflare Tunnel (for private backend):"
+echo "  5. Set up Cloudflare Tunnel (for private backend):"
 echo "     cloudflared tunnel login"
 echo "     cloudflared tunnel create mcp-router"
 echo "     # Copy cloudflare/tunnel-config.yml.example to ~/.cloudflared/config.yml"
 echo "     # Edit config.yml with your tunnel ID"
 echo "     sudo systemctl enable --now cloudflared"
 echo
-echo "  5. Create Workers VPC Service in Cloudflare Dashboard:"
+echo "  6. Create Workers VPC Service in Cloudflare Dashboard:"
 echo "     - Go to Workers & Pages -> Workers VPC"
 echo "     - Create service: mcp-router-vpc"
 echo "     - Select tunnel: mcp-router"
 echo "     - Target: http://127.0.0.1:8080"
 echo
-echo "  6. Deploy the Cloudflare Worker:"
+echo "  7. Deploy the Cloudflare Worker:"
 echo "     cd cloudflare/worker && npx wrangler deploy"
 echo
 echo "To run manually:"

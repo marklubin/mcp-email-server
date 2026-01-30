@@ -1,0 +1,22 @@
+[Unit]
+Description=Headless Brave Browser with CDP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+Environment=DISPLAY=:99
+
+# Run the wrapper script
+ExecStart=/home/%i/mcp-infrastructure/scripts/run-headless-brave.sh
+
+Restart=on-failure
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=headless-brave
+
+[Install]
+WantedBy=multi-user.target
