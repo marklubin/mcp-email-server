@@ -29,8 +29,11 @@ async def _graphql_query(query: str, variables: dict = None) -> dict:
             headers=_get_headers(),
             timeout=60,
         )
-        resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        # Return data even on 400 - GraphQL errors are in the response
+        if resp.status_code >= 500:
+            resp.raise_for_status()
+        return data
 
 
 @mcp.tool()
