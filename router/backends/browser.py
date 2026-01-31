@@ -521,21 +521,23 @@ async def new_page(url: Optional[str] = None) -> dict:
 async def get_rendered_content(max_length: int = 16000) -> dict:
     """Get the current page content in a clean, AI-readable format.
 
+    WORKFLOW:
+    1. browser_navigate(url) - Go to a page
+    2. browser_get_rendered_content() - Get content + element refs (THIS TOOL)
+    3. browser_act(ref="btn-0") - Click a button/link, OR
+       browser_act(ref="input-0", text="hello") - Type into an input
+
     This tool extracts visible text content (removing HTML, scripts, JSON cruft)
     and identifies interactive elements you can act on.
 
     Returns:
-        - url: Current page URL
-        - title: Page title
         - content: Clean readable text content of the page
-        - elements: List of interactive elements with refs, formatted as:
+        - elements: Interactive elements with refs like:
             [btn-0] click: "Submit"
             [input-1] fill: "Search..."
             [link-2] click: "Home"
-        - element_count: Number of interactive elements found
 
-    After calling this, use browser_act(ref="btn-0") to click buttons/links,
-    or browser_act(ref="input-1", text="hello") to type into inputs.
+    Use these refs with browser_act() to interact with elements.
     """
     page = await get_page()
 
@@ -559,23 +561,21 @@ async def get_rendered_content(max_length: int = 16000) -> dict:
 
 @mcp.tool()
 async def act(ref: str, text: Optional[str] = None) -> dict:
-    """Perform an action on an element using its ref from get_rendered_content.
+    """Act on an element using its ref from browser_get_rendered_content.
+
+    WORKFLOW:
+    1. browser_navigate(url) - Go to a page
+    2. browser_get_rendered_content() - Get element refs like [btn-0], [input-1]
+    3. browser_act(ref="btn-0") - Click it (THIS TOOL)
 
     Args:
-        ref: Element reference from get_rendered_content output.
-             Examples: "btn-0", "link-5", "input-2"
-        text: Text to type (only for input elements). If provided, types this text.
-              If not provided for an input, just clicks it.
-
-    Returns:
-        - status: "clicked" or "typed"
-        - ref: The ref that was acted on
-        - url: Current page URL (may have changed after click)
+        ref: Element reference from get_rendered_content (e.g. "btn-0", "input-2")
+        text: For inputs only - text to type. Omit to click instead.
 
     Examples:
-        browser_act(ref="btn-0")  # Clicks the button
-        browser_act(ref="link-3")  # Clicks the link
-        browser_act(ref="input-1", text="hello")  # Types "hello" into the input
+        browser_act(ref="btn-0")  # Click a button
+        browser_act(ref="link-3")  # Click a link
+        browser_act(ref="input-1", text="hello")  # Type into input
     """
     global _element_map
     page = await get_page()
