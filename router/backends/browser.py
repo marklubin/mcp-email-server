@@ -1,14 +1,19 @@
 """Browser automation backend using Playwright via CDP.
 
-This backend provides AI-agent-friendly browser automation tools. The key feature
-is the `get_content` tool with `format="agent"` which returns:
-1. Clean, readable page content (no HTML/JS cruft)
-2. A map of interactive elements with simple refs for actions
+This backend provides AI-agent-friendly browser automation tools.
 
-Example workflow:
+## Recommended workflow for AI agents:
+
 1. browser_navigate("https://example.com")
-2. browser_get_content(format="agent")  # Returns content + interactive elements
-3. browser_click(ref="btn-0")  # Click using the ref from step 2
+2. browser_get_rendered_content()  # Returns clean text + interactive element refs
+3. browser_act(ref="btn-0")  # Click button, OR
+   browser_act(ref="input-0", text="hello")  # Type into input
+
+The get_rendered_content tool returns:
+- content: Clean readable text (HTML/JS cruft removed)
+- elements: Interactive elements with refs like [btn-0], [link-1], [input-2]
+
+The act tool uses these refs to interact with elements.
 """
 
 import os
@@ -506,3 +511,108 @@ async def new_page(url: Optional[str] = None) -> dict:
         'url': _page.url,
         'title': await _page.title(),
     }
+
+
+# =============================================================================
+# Agent-friendly tools with clear semantics
+# =============================================================================
+
+@mcp.tool()
+async def get_rendered_content(max_length: int = 16000) -> dict:
+    """Get the current page content in a clean, AI-readable format.
+
+    This tool extracts visible text content (removing HTML, scripts, JSON cruft)
+    and identifies interactive elements you can act on.
+
+    Returns:
+        - url: Current page URL
+        - title: Page title
+        - content: Clean readable text content of the page
+        - elements: List of interactive elements with refs, formatted as:
+            [btn-0] click: "Submit"
+            [input-1] fill: "Search..."
+            [link-2] click: "Home"
+        - element_count: Number of interactive elements found
+
+    After calling this, use browser_act(ref="btn-0") to click buttons/links,
+    or browser_act(ref="input-1", text="hello") to type into inputs.
+    """
+    page = await get_page()
+
+    # Get clean text content
+    text_content = await _extract_text_content(page)
+    if len(text_content) > max_length:
+        text_content = text_content[:max_length] + "\n\n[Content truncated...]"
+
+    # Get interactive elements
+    elements = await _extract_interactive_elements(page)
+    element_list, _ = _build_element_map(elements)
+
+    return {
+        'url': page.url,
+        'title': await page.title(),
+        'content': text_content,
+        'elements': element_list,
+        'element_count': len(elements),
+    }
+
+
+@mcp.tool()
+async def act(ref: str, text: Optional[str] = None) -> dict:
+    """Perform an action on an element using its ref from get_rendered_content.
+
+    Args:
+        ref: Element reference from get_rendered_content output.
+             Examples: "btn-0", "link-5", "input-2"
+        text: Text to type (only for input elements). If provided, types this text.
+              If not provided for an input, just clicks it.
+
+    Returns:
+        - status: "clicked" or "typed"
+        - ref: The ref that was acted on
+        - url: Current page URL (may have changed after click)
+
+    Examples:
+        browser_act(ref="btn-0")  # Clicks the button
+        browser_act(ref="link-3")  # Clicks the link
+        browser_act(ref="input-1", text="hello")  # Types "hello" into the input
+    """
+    global _element_map
+    page = await get_page()
+
+    # Check if we have the element map
+    if not _element_map:
+        return {'error': 'No element map. Call get_rendered_content first.'}
+
+    # Look up the selector
+    if ref not in _element_map:
+        available = list(_element_map.keys())[:10]
+        return {
+            'error': f'Unknown ref: {ref}',
+            'available_refs': available,
+            'hint': 'Call get_rendered_content to see current elements'
+        }
+
+    selector = _element_map[ref]
+
+    try:
+        if text is not None:
+            # Type text into the element
+            await page.fill(selector, text, timeout=5000)
+            return {
+                'status': 'typed',
+                'ref': ref,
+                'text': text,
+                'url': page.url,
+            }
+        else:
+            # Click the element
+            await page.click(selector, timeout=5000)
+            await page.wait_for_load_state('domcontentloaded', timeout=5000)
+            return {
+                'status': 'clicked',
+                'ref': ref,
+                'url': page.url,
+            }
+    except Exception as e:
+        return {'error': str(e), 'ref': ref}
