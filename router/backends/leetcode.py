@@ -74,7 +74,7 @@ async def get_company_problems(company_slug: str, limit: int = 50) -> dict:
             companyFilter: {{companySlugs: ["{company_slug.lower()}"]}}
         }}) {{
             questions {{
-                questionId
+                questionFrontendId
                 title
                 titleSlug
                 difficulty
@@ -98,7 +98,7 @@ async def get_company_problems(company_slug: str, limit: int = 50) -> dict:
         "total_problems": len(questions),
         "problems": [
             {
-                "id": q.get("questionId"),
+                "id": q.get("questionFrontendId"),
                 "title": q.get("title"),
                 "slug": q.get("titleSlug"),
                 "url": f"https://leetcode.com/problems/{q.get('titleSlug')}/",
@@ -153,7 +153,7 @@ async def get_problem_detail(title_slug: str) -> dict:
         return {"error": f"Problem '{title_slug}' not found"}
 
     return {
-        "id": q.get("questionId"),
+        "id": q.get("questionFrontendId"),
         "title": q.get("title"),
         "slug": q.get("titleSlug"),
         "url": f"https://leetcode.com/problems/{q.get('titleSlug')}/",
@@ -187,7 +187,7 @@ async def search_problems(keyword: str, difficulty: str = None, limit: int = 20)
     query {{
         problemsetQuestionListV2(filters: {{ {filters} }}) {{
             questions {{
-                questionId
+                questionFrontendId
                 title
                 titleSlug
                 difficulty
@@ -221,7 +221,7 @@ async def search_problems(keyword: str, difficulty: str = None, limit: int = 20)
         "count": len(filtered),
         "problems": [
             {
-                "id": q.get("questionId"),
+                "id": q.get("questionFrontendId"),
                 "title": q.get("title"),
                 "slug": q.get("titleSlug"),
                 "url": f"https://leetcode.com/problems/{q.get('titleSlug')}/",
@@ -252,7 +252,7 @@ async def get_problems_by_topic(topic_slug: str, limit: int = 30) -> dict:
             topicFilter: {{topicSlugs: ["{topic_slug.lower()}"]}}
         }}) {{
             questions {{
-                questionId
+                questionFrontendId
                 title
                 titleSlug
                 difficulty
@@ -274,7 +274,7 @@ async def get_problems_by_topic(topic_slug: str, limit: int = 30) -> dict:
         "count": len(questions),
         "problems": [
             {
-                "id": q.get("questionId"),
+                "id": q.get("questionFrontendId"),
                 "title": q.get("title"),
                 "slug": q.get("titleSlug"),
                 "url": f"https://leetcode.com/problems/{q.get('titleSlug')}/",
