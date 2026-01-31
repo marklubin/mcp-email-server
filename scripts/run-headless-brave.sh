@@ -57,7 +57,8 @@ brave-browser \
     --disable-sync \
     --disable-extensions \
     --disable-gpu \
-    --start-maximized &
+    --window-position=0,0 \
+    --window-size=1920,1080 &
 BRAVE_PID=$!
 
 echo "Brave started with PID $BRAVE_PID"
