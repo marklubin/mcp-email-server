@@ -16,6 +16,7 @@ from fastmcp import FastMCP
 from backends import email
 from backends import kp3
 from backends import browser
+from backends import leetcode
 
 MCP_SECRET = os.environ.get('MCP_SECRET', '')
 
@@ -24,12 +25,13 @@ router = FastMCP('mcp-router')
 router.mount(email.mcp, prefix='email')
 router.mount(kp3.mcp, prefix='kp3')
 router.mount(browser.mcp, prefix='browser')
+router.mount(leetcode.mcp, prefix='leetcode')
 
 
 @router.tool()
 def health() -> dict:
     """Health check for the MCP router."""
-    return {'status': 'ok', 'backends': ['email', 'kp3', 'browser']}
+    return {'status': 'ok', 'backends': ['email', 'kp3', 'browser', 'leetcode']}
 
 
 @router.tool()
@@ -108,7 +110,7 @@ def main():
         app = AuthMiddleware(app, MCP_SECRET)
 
     print(f'MCP Router starting on {host}:{port}')
-    print('Mounted backends: email, kp3, browser')
+    print('Mounted backends: email, kp3, browser, leetcode')
     uvicorn.run(app, host=host, port=port)
 
 
