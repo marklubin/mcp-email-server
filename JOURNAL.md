@@ -4,6 +4,31 @@ Short entries documenting each episode of work on this repo.
 
 ---
 
+## 2026-02-01: Add Todoist Backend
+
+**Goal:** Add Todoist task management backend with a streamlined 2-tool API.
+
+**Changes:**
+- Created `router/backends/todoist.py` with `tasks` and `projects` tools
+- Mounted todoist backend in router (tools appear as `todoist_tasks`, `todoist_projects`)
+- Created `tests/test_todoist_backend.py` with 37 unit tests
+
+**Design:**
+- 2 tools only to minimize context pollution
+- `tasks` tool: list/get/create/update/delete/complete/reopen with inline comments
+- `projects` tool: list/get/create/update/delete + section management
+- List returns deduped project/section metadata alongside tasks
+- Reminders supported via Sync API (Premium only)
+
+**Result:** All 37 tests pass. Ready for deployment after adding `TODOIST_API_TOKEN` to remote .env.
+
+**Files touched:**
+- `router/backends/todoist.py` - new (~300 lines)
+- `router/server.py` - import and mount todoist backend
+- `tests/test_todoist_backend.py` - new (37 tests)
+
+---
+
 ## 2026-01-29: Add kp3 Backend
 
 **Goal:** Integrate kp3 (passage storage and hybrid search) as an MCP backend.
