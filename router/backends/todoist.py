@@ -312,10 +312,25 @@ async def tasks(
         if labels is not None:
             body['labels'] = labels
 
-        if not body and not comment:
+        if not body and not comment and not section_id:
             return {'error': 'No fields to update'}
 
         task_data = None
+
+        # Move to section if provided (requires Sync API)
+        if section_id:
+            move_commands = [{
+                'type': 'item_move',
+                'uuid': str(uuid.uuid4()),
+                'args': {
+                    'id': task_id,
+                    'section_id': section_id,
+                },
+            }]
+            _, move_error = await _sync_api(move_commands)
+            if move_error:
+                return {'error': f'Failed to move task: {move_error}'}
+
         if body:
             task_data, error = await _api('POST', f'tasks/{task_id}', json_body=body)
             if error:
