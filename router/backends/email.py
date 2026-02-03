@@ -1,13 +1,19 @@
 """Email backend for ProtonMail Bridge."""
 
 import os
-import re
 from email.header import decode_header
 from email import message_from_bytes
 from email.utils import parsedate_to_datetime
 
+import html2text
 from fastmcp import FastMCP
 from aioimaplib import IMAP4
+
+_html_converter = html2text.HTML2Text()
+_html_converter.body_width = 0
+_html_converter.ignore_images = True
+_html_converter.ignore_emphasis = False
+_html_converter.protect_links = True
 
 IMAP_HOST = os.environ.get('PROTON_BRIDGE_HOST', '127.0.0.1')
 IMAP_PORT = int(os.environ.get('PROTON_BRIDGE_IMAP_PORT', '1143'))
@@ -217,14 +223,13 @@ async def get_email(message_id: str, mailbox: str = 'INBOX') -> dict:
             elif ct == 'text/html' and not body:
                 payload = part.get_payload(decode=True)
                 if payload:
-                    html = payload.decode('utf-8', errors='replace')
-                    body = re.sub(r'<[^>]+>', '', html)[:3000]
+                    body = _html_converter.handle(payload.decode('utf-8', errors='replace')).strip()
     else:
         payload = msg.get_payload(decode=True)
         if payload:
             body = payload.decode('utf-8', errors='replace')
             if msg.get_content_type() == 'text/html':
-                body = re.sub(r'<[^>]+>', '', body)
+                body = _html_converter.handle(body).strip()
 
     await client.logout()
     date_raw = msg.get('Date', '')
