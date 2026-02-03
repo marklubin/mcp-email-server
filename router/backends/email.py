@@ -212,18 +212,21 @@ async def get_email(message_id: str, mailbox: str = 'INBOX') -> dict:
         return {'error': f'Parse error: {e}'}
 
     body = ''
+    plain_body = ''
     if msg.is_multipart():
         for part in msg.walk():
             ct = part.get_content_type()
-            if ct == 'text/plain':
-                payload = part.get_payload(decode=True)
-                if payload:
-                    body = payload.decode('utf-8', errors='replace')
-                    break
-            elif ct == 'text/html' and not body:
+            if ct == 'text/html':
                 payload = part.get_payload(decode=True)
                 if payload:
                     body = _html_converter.handle(payload.decode('utf-8', errors='replace')).strip()
+                    break
+            elif ct == 'text/plain' and not plain_body:
+                payload = part.get_payload(decode=True)
+                if payload:
+                    plain_body = payload.decode('utf-8', errors='replace')
+        if not body:
+            body = plain_body
     else:
         payload = msg.get_payload(decode=True)
         if payload:
