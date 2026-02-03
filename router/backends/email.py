@@ -1,6 +1,7 @@
 """Email backend for ProtonMail Bridge."""
 
 import os
+import re
 from email.header import decode_header
 from email import message_from_bytes
 from email.utils import parsedate_to_datetime
@@ -216,13 +217,14 @@ async def get_email(message_id: str, mailbox: str = 'INBOX') -> dict:
             elif ct == 'text/html' and not body:
                 payload = part.get_payload(decode=True)
                 if payload:
-                    import re
                     html = payload.decode('utf-8', errors='replace')
                     body = re.sub(r'<[^>]+>', '', html)[:3000]
     else:
         payload = msg.get_payload(decode=True)
         if payload:
             body = payload.decode('utf-8', errors='replace')
+            if msg.get_content_type() == 'text/html':
+                body = re.sub(r'<[^>]+>', '', body)
 
     await client.logout()
     date_raw = msg.get('Date', '')
