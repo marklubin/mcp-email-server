@@ -213,17 +213,13 @@ async def get_email(message_id: str, mailbox: str = 'INBOX') -> dict:
 
     body = ''
     plain_body = ''
-    _debug_parts = []
-    _debug_source = 'none'
     if msg.is_multipart():
         for part in msg.walk():
             ct = part.get_content_type()
-            _debug_parts.append(ct)
             if ct == 'text/html':
                 payload = part.get_payload(decode=True)
                 if payload:
                     body = _html_converter.handle(payload.decode('utf-8', errors='replace')).strip()
-                    _debug_source = 'multipart-html'
                     break
             elif ct == 'text/plain' and not plain_body:
                 payload = part.get_payload(decode=True)
@@ -231,24 +227,17 @@ async def get_email(message_id: str, mailbox: str = 'INBOX') -> dict:
                     plain_body = payload.decode('utf-8', errors='replace')
         if not body:
             body = plain_body
-            _debug_source = 'multipart-plain-fallback'
     else:
-        _debug_parts.append(msg.get_content_type())
         payload = msg.get_payload(decode=True)
         if payload:
             body = payload.decode('utf-8', errors='replace')
             if msg.get_content_type() == 'text/html':
                 body = _html_converter.handle(body).strip()
-                _debug_source = 'single-html'
-            else:
-                _debug_source = 'single-plain'
 
     await client.logout()
     date_raw = msg.get('Date', '')
     return {
         'id': message_id,
-        '_debug_parts': _debug_parts,
-        '_debug_source': _debug_source,
         'from': decode_mime_header(msg.get('From', '')),
         'to': decode_mime_header(msg.get('To', '')),
         'subject': decode_mime_header(msg.get('Subject', '')),
