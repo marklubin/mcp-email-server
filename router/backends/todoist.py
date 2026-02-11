@@ -57,7 +57,11 @@ async def _api(
             if response.status_code >= 400:
                 return None, f'API error {response.status_code}: {response.text}'
 
-            return response.json(), None
+            data = response.json()
+            # v1 API wraps list responses in {"results": [...]}
+            if isinstance(data, dict) and 'results' in data:
+                data = data['results']
+            return data, None
 
         except httpx.TimeoutException:
             return None, 'Request timed out'

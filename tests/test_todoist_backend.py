@@ -91,7 +91,7 @@ def create_mock_todoist_api():
         if '/api/v1/tasks' in url:
             if method == 'GET':
                 if url.endswith('/tasks'):
-                    return MockResponse(200, MOCK_TASKS)
+                    return MockResponse(200, {'results': MOCK_TASKS})
                 # Get single task
                 task_id = url.split('/')[-1]
                 for task in MOCK_TASKS:
@@ -127,7 +127,7 @@ def create_mock_todoist_api():
         if '/api/v1/projects' in url:
             if method == 'GET':
                 if url.endswith('/projects'):
-                    return MockResponse(200, MOCK_PROJECTS)
+                    return MockResponse(200, {'results': MOCK_PROJECTS})
                 # Get single project
                 project_id = url.split('/')[-1]
                 for proj in MOCK_PROJECTS:
@@ -154,8 +154,8 @@ def create_mock_todoist_api():
                 project_id = params.get('project_id')
                 if project_id:
                     filtered = [s for s in MOCK_SECTIONS if s['project_id'] == project_id]
-                    return MockResponse(200, filtered)
-                return MockResponse(200, MOCK_SECTIONS)
+                    return MockResponse(200, {'results': filtered})
+                return MockResponse(200, {'results': MOCK_SECTIONS})
             elif method == 'POST':
                 json_body = kwargs.get('json', {})
                 new_section = {
