@@ -13,8 +13,8 @@ import httpx
 from fastmcp import FastMCP
 
 TODOIST_API_TOKEN = os.environ.get('TODOIST_API_TOKEN', '')
-BASE_URL = 'https://api.todoist.com/rest/v2'
-SYNC_URL = 'https://api.todoist.com/sync/v9/sync'
+BASE_URL = 'https://api.todoist.com/api/v1'
+SYNC_URL = 'https://api.todoist.com/api/v1/sync'
 
 mcp = FastMCP('todoist')
 
@@ -317,17 +317,11 @@ async def tasks(
 
         task_data = None
 
-        # Move to section if provided (requires Sync API)
+        # Move to section if provided
         if section_id:
-            move_commands = [{
-                'type': 'item_move',
-                'uuid': str(uuid.uuid4()),
-                'args': {
-                    'id': task_id,
-                    'section_id': section_id,
-                },
-            }]
-            _, move_error = await _sync_api(move_commands)
+            _, move_error = await _api('POST', f'tasks/{task_id}/move', json_body={
+                'section_id': section_id,
+            })
             if move_error:
                 return {'error': f'Failed to move task: {move_error}'}
 

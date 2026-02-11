@@ -88,7 +88,7 @@ def create_mock_todoist_api():
     async def mock_request(method, url, **kwargs):
         """Route mock requests based on URL and method."""
         # Tasks endpoints
-        if '/rest/v2/tasks' in url:
+        if '/api/v1/tasks' in url:
             if method == 'GET':
                 if url.endswith('/tasks'):
                     return MockResponse(200, MOCK_TASKS)
@@ -102,6 +102,8 @@ def create_mock_todoist_api():
                 if '/close' in url:
                     return MockResponse(204)
                 if '/reopen' in url:
+                    return MockResponse(204)
+                if '/move' in url:
                     return MockResponse(204)
                 # Create or update
                 json_body = kwargs.get('json', {})
@@ -122,7 +124,7 @@ def create_mock_todoist_api():
                 return MockResponse(204)
 
         # Projects endpoints
-        if '/rest/v2/projects' in url:
+        if '/api/v1/projects' in url:
             if method == 'GET':
                 if url.endswith('/projects'):
                     return MockResponse(200, MOCK_PROJECTS)
@@ -146,7 +148,7 @@ def create_mock_todoist_api():
                 return MockResponse(204)
 
         # Sections endpoints
-        if '/rest/v2/sections' in url:
+        if '/api/v1/sections' in url:
             if method == 'GET':
                 params = kwargs.get('params', {})
                 project_id = params.get('project_id')
@@ -167,7 +169,7 @@ def create_mock_todoist_api():
                 return MockResponse(204)
 
         # Comments endpoint
-        if '/rest/v2/comments' in url:
+        if '/api/v1/comments' in url:
             if method == 'POST':
                 json_body = kwargs.get('json', {})
                 new_comment = {
@@ -178,7 +180,7 @@ def create_mock_todoist_api():
                 return MockResponse(200, new_comment)
 
         # Sync API (for reminders)
-        if '/sync/v9/sync' in url:
+        if '/api/v1/sync' in url:
             # Simulate premium required error
             return MockResponse(200, {
                 'sync_status': {
