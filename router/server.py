@@ -19,6 +19,7 @@ from backends import browser
 from backends import leetcode
 from backends import todoist
 from backends import blah
+from backends import lab
 
 MCP_SECRET = os.environ.get('MCP_SECRET', '')
 
@@ -30,12 +31,13 @@ router.mount(browser.mcp, prefix='browser')
 router.mount(leetcode.mcp, prefix='leetcode')
 router.mount(todoist.mcp, prefix='todoist')
 router.mount(blah.mcp, prefix='blah')
+router.mount(lab.mcp, prefix='lab')
 
 
 @router.tool()
 def health() -> dict:
     """Health check for the MCP router."""
-    return {'status': 'ok', 'backends': ['email', 'kp3', 'browser', 'leetcode', 'todoist', 'blah']}
+    return {'status': 'ok', 'backends': ['email', 'kp3', 'browser', 'leetcode', 'todoist', 'blah', 'lab']}
 
 
 @router.tool()
@@ -104,17 +106,28 @@ class AuthMiddleware:
 
 def main():
     import uvicorn
+    from starlette.applications import Starlette
+    from starlette.routing import Mount
 
     host = os.environ.get('ROUTER_HOST', '127.0.0.1')
     port = int(os.environ.get('ROUTER_PORT', '8080'))
 
-    app = router.http_app()
+    mcp_app = router.http_app()
+
+    # Combine lab HTTP API routes with MCP app
+    # Lab routes (/lab/*) are matched first, MCP SSE/HTTP is the catch-all
+    app = Starlette(routes=[
+        *lab.lab_http_routes,
+        Mount('/', app=mcp_app),
+    ])
+
     if MCP_SECRET:
         print('API key auth enabled')
         app = AuthMiddleware(app, MCP_SECRET)
 
     print(f'MCP Router starting on {host}:{port}')
-    print('Mounted backends: email, kp3, browser, leetcode, todoist, blah')
+    print('Mounted backends: email, kp3, browser, leetcode, todoist, blah, lab')
+    print(f'Lab HTTP API: /lab/pending, /lab/claim/{{id}}, /lab/report, /lab/documents/{{id}}')
     uvicorn.run(app, host=host, port=port)
 
 
