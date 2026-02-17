@@ -133,17 +133,17 @@ _notify_check() {
 
             # Outstanding hypotheses
             if (( lab_outstanding > 0 )); then
-                echo "$lab_digest" | jq -r '.outstanding[] | "\(.status)\t\(.hypothesis)\t\(.id)"' 2>/dev/null | while IFS=$'\t' read -r status hypothesis hid; do
+                echo "$lab_digest" | jq -r '.outstanding[] | "\(.status)\t\(.hypothesis)\t\(.id)"' 2>/dev/null | while IFS=$'\t' read -r hstatus hypothesis hid; do
                     local sc="$yel"
                     local icon="◌"
-                    if [[ "$status" == "processing" ]]; then
+                    if [[ "$hstatus" == "processing" ]]; then
                         sc="$cyn"
                         icon="◉"
                     fi
 
-                    hypothesis=$(_trunc "$hypothesis" $(( W - ${#status} - 8 )))
-                    local vis=$(( ${#status} + ${#hypothesis} + 5 ))
-                    echo "${d}│${r}  ${sc}${icon} ${status}${r} ${wht}${hypothesis}${r}$(_pad_line $vis $W)${d}│${r}"
+                    hypothesis=$(_trunc "$hypothesis" $(( W - ${#hstatus} - 8 )))
+                    local vis=$(( ${#hstatus} + ${#hypothesis} + 5 ))
+                    echo "${d}│${r}  ${sc}${icon} ${hstatus}${r} ${wht}${hypothesis}${r}$(_pad_line $vis $W)${d}│${r}"
                 done
             fi
 
