@@ -5,13 +5,17 @@ plus HTTP API endpoints for the lab server to poll for work and post results.
 """
 
 import json
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
 import aiosqlite
+import httpx
 from fastmcp import FastMCP
+
+logger = logging.getLogger(__name__)
 
 mcp = FastMCP('lab')
 
@@ -421,9 +425,37 @@ async def http_submit_report(request: Request) -> JSONResponse:
         )
 
         await db.commit()
-        return JSONResponse({'report_id': report_id, 'status': status})
+
+        # Fetch hypothesis text for the notification
+        row = await db.execute_fetchall(
+            'SELECT hypothesis FROM hypotheses WHERE id = ?', (body['hypothesis_id'],),
+        )
+        hyp_text = row[0]['hypothesis'][:80] if row else body['hypothesis_id']
     finally:
         await db.close()
+
+    # Push notification
+    verdict = body['verdict']
+    confidence = body['confidence']
+    level = 'error' if verdict == 'FAILED' else 'info'
+    title = f"Lab report: {verdict} (confidence {confidence}/5)"
+    try:
+        port = os.environ.get('ROUTER_PORT', '8080')
+        httpx.post(
+            f'http://127.0.0.1:{port}/notifications/push',
+            json={
+                'level': level,
+                'source': 'lab',
+                'title': title,
+                'body': hyp_text,
+                'metadata': {'report_id': report_id, 'hypothesis_id': body['hypothesis_id'], 'verdict': verdict},
+            },
+            timeout=2,
+        )
+    except Exception:
+        logger.warning("Failed to push lab report notification: %s", title, exc_info=True)
+
+    return JSONResponse({'report_id': report_id, 'status': status})
 
 
 async def http_get_documents(request: Request) -> JSONResponse:
@@ -463,6 +495,36 @@ async def http_update_status(request: Request) -> JSONResponse:
         await db.close()
 
 
+async def http_digest(request: Request) -> JSONResponse:
+    """Digest-friendly summary: outstanding work + recent completed reports."""
+    await _init_db()
+    db = await _get_db()
+    try:
+        # Outstanding: pending + processing
+        outstanding = await db.execute_fetchall(
+            "SELECT id, status, hypothesis, created_at FROM hypotheses "
+            "WHERE status IN ('pending', 'processing') ORDER BY created_at ASC",
+        )
+
+        # Recently completed reports (last 24h, max 3)
+        recent = await db.execute_fetchall(
+            "SELECT r.id, r.verdict, r.confidence, r.executive_summary, "
+            "h.hypothesis, r.created_at "
+            "FROM reports r JOIN hypotheses h ON r.hypothesis_id = h.id "
+            "WHERE r.created_at > datetime('now', '-1 day') "
+            "ORDER BY r.created_at DESC LIMIT 3",
+        )
+
+        return JSONResponse({
+            'outstanding': [_row_to_dict(r) for r in outstanding],
+            'outstanding_count': len(outstanding),
+            'recent_reports': [_row_to_dict(r) for r in recent],
+            'recent_count': len(recent),
+        })
+    finally:
+        await db.close()
+
+
 # Starlette routes for the lab HTTP API
 lab_http_routes = [
     Route('/lab/pending', http_get_pending, methods=['GET']),
@@ -470,4 +532,5 @@ lab_http_routes = [
     Route('/lab/report', http_submit_report, methods=['POST']),
     Route('/lab/documents/{hypothesis_id}', http_get_documents, methods=['GET']),
     Route('/lab/status/{hypothesis_id}', http_update_status, methods=['POST']),
+    Route('/lab/digest', http_digest, methods=['GET']),
 ]
