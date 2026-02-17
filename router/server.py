@@ -19,7 +19,9 @@ from backends import browser
 from backends import leetcode
 from backends import todoist
 from backends import blah
+from backends import letta
 from backends import lab
+from backends import notifications
 
 MCP_SECRET = os.environ.get('MCP_SECRET', '')
 
@@ -31,13 +33,15 @@ router.mount(browser.mcp, prefix='browser')
 router.mount(leetcode.mcp, prefix='leetcode')
 router.mount(todoist.mcp, prefix='todoist')
 router.mount(blah.mcp, prefix='blah')
+router.mount(letta.mcp, prefix='letta')
 router.mount(lab.mcp, prefix='lab')
+router.mount(notifications.mcp, prefix='notify')
 
 
 @router.tool()
 def health() -> dict:
     """Health check for the MCP router."""
-    return {'status': 'ok', 'backends': ['email', 'kp3', 'browser', 'leetcode', 'todoist', 'blah', 'lab']}
+    return {'status': 'ok', 'backends': ['email', 'kp3', 'browser', 'leetcode', 'todoist', 'blah', 'letta', 'lab', 'notify']}
 
 
 @router.tool()
@@ -61,7 +65,7 @@ def logs(lines: int = 50, service: str = "mcp-router") -> dict:
 
     try:
         result = subprocess.run(
-            ['journalctl', '-u', unit, '-n', str(lines), '--no-pager'],
+            ['journalctl', '--user-unit', unit, '-n', str(lines), '--no-pager'],
             capture_output=True,
             text=True,
             timeout=10
@@ -116,8 +120,9 @@ def main():
 
     # Combine lab HTTP API routes with MCP app
     # Lab routes (/lab/*) are matched first, MCP SSE/HTTP is the catch-all
-    app = Starlette(routes=[
+    app = Starlette(lifespan=mcp_app.lifespan, routes=[
         *lab.lab_http_routes,
+        *notifications.notify_http_routes,
         Mount('/', app=mcp_app),
     ])
 
@@ -126,8 +131,9 @@ def main():
         app = AuthMiddleware(app, MCP_SECRET)
 
     print(f'MCP Router starting on {host}:{port}')
-    print('Mounted backends: email, kp3, browser, leetcode, todoist, blah, lab')
+    print('Mounted backends: email, kp3, browser, leetcode, todoist, blah, letta, lab, notify')
     print(f'Lab HTTP API: /lab/pending, /lab/claim/{{id}}, /lab/report, /lab/documents/{{id}}')
+    print(f'Notifications HTTP API: /notifications, /notifications/push, /notifications/summary')
     uvicorn.run(app, host=host, port=port)
 
 
