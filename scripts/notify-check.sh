@@ -74,20 +74,18 @@ _notify_check() {
                 ts=$(echo "$created_at" | grep -oP '\d{2}:\d{2}' | head -1)
             fi
 
-            local tag="${lc}${level}${reset}"
-            local line="${dim}│${reset} ${tag} ${dim}${source}${reset} ${white}${title}${reset}"
-
-            # Right-align timestamp
-            if [[ -n "$ts" ]]; then
-                local visible_len=$(( ${#level} + ${#source} + ${#title} + 5 ))
-                local spaces=$(( W - 2 - visible_len - ${#ts} ))
-                (( spaces < 1 )) && spaces=1
-                line="${line}$(printf ' %.0s' $(seq 1 $spaces))${dim}${ts}${reset} ${dim}│${reset}"
-            else
-                line="${line} ${dim}│${reset}"
+            # Available space: W - "│ " (2) - level - " " - source - " " - title - " " - ts - " │" (2)
+            # = W - 7 - ${#level} - ${#source} - ${#ts}
+            local avail=$(( W - 7 - ${#level} - ${#source} - ${#ts} ))
+            if (( ${#title} > avail )); then
+                title="${title:0:$(( avail - 1 ))}…"
             fi
 
-            echo "$line"
+            local tag="${lc}${level}${reset}"
+            local visible_len=$(( ${#level} + ${#source} + ${#title} + 5 ))
+            local spaces=$(( W - 2 - visible_len - ${#ts} ))
+            (( spaces < 1 )) && spaces=1
+            echo "${dim}│${reset} ${tag} ${dim}${source}${reset} ${white}${title}${reset}$(printf ' %.0s' $(seq 1 $spaces))${dim}${ts} │${reset}"
         done
     fi
 
@@ -95,5 +93,5 @@ _notify_check() {
     echo ""
 }
 
-# Run in a subshell so it doesn't block anything
-( _notify_check & )
+# Run synchronously — curl timeout (2s) keeps it fast
+_notify_check
