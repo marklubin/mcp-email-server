@@ -83,7 +83,14 @@ def logs(lines: int = 50, service: str = "mcp-router") -> dict:
 
 
 class AuthMiddleware:
-    """Check X-MCP-Secret header."""
+    """Check X-MCP-Secret header for MCP transport routes.
+
+    HTTP API routes (/lab/*, /notifications/*) are exempt — they're
+    accessed over Tailscale which provides network-level auth.
+    """
+
+    # Paths that don't require the MCP secret (internal/Tailscale use)
+    EXEMPT_PREFIXES = ('/lab/', '/notifications')
 
     def __init__(self, app, secret):
         self.app = app
@@ -91,6 +98,10 @@ class AuthMiddleware:
 
     async def __call__(self, scope, receive, send):
         if scope['type'] == 'http' and self.secret:
+            path = scope.get('path', '')
+            if any(path.startswith(p) for p in self.EXEMPT_PREFIXES):
+                await self.app(scope, receive, send)
+                return
             headers = {k.decode(): v.decode() for k, v in scope.get('headers', [])}
             if headers.get('x-mcp-secret') != self.secret:
                 response = json.dumps({
