@@ -22,6 +22,7 @@ from backends import blah
 from backends import letta
 from backends import lab
 from backends import notifications
+from backends import discord
 
 MCP_SECRET = os.environ.get('MCP_SECRET', '')
 
@@ -36,12 +37,13 @@ router.mount(blah.mcp, prefix='blah')
 router.mount(letta.mcp, prefix='letta')
 router.mount(lab.mcp, prefix='lab')
 router.mount(notifications.mcp, prefix='notify')
+router.mount(discord.mcp, prefix='discord')
 
 
 @router.tool()
 def health() -> dict:
     """Health check for the MCP router."""
-    return {'status': 'ok', 'backends': ['email', 'kp3', 'browser', 'leetcode', 'todoist', 'blah', 'letta', 'lab', 'notify']}
+    return {'status': 'ok', 'backends': ['email', 'kp3', 'browser', 'leetcode', 'todoist', 'blah', 'letta', 'lab', 'notify', 'discord']}
 
 
 @router.tool()
@@ -90,7 +92,7 @@ class AuthMiddleware:
     """
 
     # Paths that don't require the MCP secret (internal/Tailscale use)
-    EXEMPT_PREFIXES = ('/lab/', '/notifications')
+    EXEMPT_PREFIXES = ('/lab/', '/notifications', '/discord/')
 
     def __init__(self, app, secret):
         self.app = app
@@ -134,6 +136,7 @@ def main():
     app = Starlette(lifespan=mcp_app.lifespan, routes=[
         *lab.lab_http_routes,
         *notifications.notify_http_routes,
+        *discord.discord_http_routes,
         Mount('/', app=mcp_app),
     ])
 
@@ -142,9 +145,10 @@ def main():
         app = AuthMiddleware(app, MCP_SECRET)
 
     print(f'MCP Router starting on {host}:{port}')
-    print('Mounted backends: email, kp3, browser, leetcode, todoist, blah, letta, lab, notify')
+    print('Mounted backends: email, kp3, browser, leetcode, todoist, blah, letta, lab, notify, discord')
     print(f'Lab HTTP API: /lab/pending, /lab/claim/{{id}}, /lab/report, /lab/documents/{{id}}')
     print(f'Notifications HTTP API: /notifications, /notifications/push, /notifications/summary')
+    print(f'Discord HTTP API: /discord/validate, /discord/guilds, /discord/channels/{{id}}/messages')
     uvicorn.run(app, host=host, port=port)
 
 
