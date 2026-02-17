@@ -107,6 +107,10 @@ _notify_check() {
         echo "${d}│${r}  ${grn}${msg}${r}$(_pad_line $(( ${#msg} + 2 )) $W)${d}│${r}"
     else
         _section_header "Notifications (${unread})"
+        # Collect IDs to mark as read after display
+        local _notif_ids=""
+        _notif_ids=$(echo "$notif_list" | jq -r '.notifications[].id' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+
         echo "$notif_list" | jq -r '.notifications[] | "\(.level)\t\(.source)\t\(.title)\t\(.created_at)"' 2>/dev/null | while IFS=$'\t' read -r level source title created_at; do
             local lc="$cyn"
             case "$level" in
@@ -124,6 +128,15 @@ _notify_check() {
             local vis=$(( ${#level} + ${#source} + ${#title} + ${#ts} + 6 ))
             echo "${d}│${r}  ${lc}${level}${r} ${d}${source}${r} ${wht}${title}${r}$(_pad_line $vis $W)${d}${ts} │${r}"
         done
+
+        # Mark displayed notifications as read so they roll off after 24h
+        if [[ -n "$_notif_ids" ]]; then
+            local _id_array
+            _id_array=$(echo "$_notif_ids" | tr ',' '\n' | jq -R . | jq -s .)
+            curl -sf --max-time 2 -X POST "${_BASE}/notifications/read" \
+                -H "Content-Type: application/json" \
+                -d "{\"ids\": ${_id_array}}" >/dev/null 2>&1 || true
+        fi
     fi
 
     # ── Lab section ──────────────────────────────────────────────

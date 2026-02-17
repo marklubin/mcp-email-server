@@ -5,10 +5,13 @@ plus HTTP API endpoints for non-MCP consumers (terminal clients, dashboards, etc
 """
 
 import json
+import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 import aiosqlite
 from fastmcp import FastMCP
@@ -58,6 +61,24 @@ async def _init_db():
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+async def _auto_cleanup(db: aiosqlite.Connection):
+    """Prune expired notifications and old read notifications (>24h)."""
+    try:
+        now = _now()
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        await db.execute(
+            "DELETE FROM notifications WHERE expires_at IS NOT NULL AND expires_at < ?",
+            (now,),
+        )
+        await db.execute(
+            "DELETE FROM notifications WHERE read_at IS NOT NULL AND read_at < ?",
+            (cutoff,),
+        )
+        await db.commit()
+    except Exception:
+        logger.warning("Auto-cleanup failed", exc_info=True)
 
 
 def _row_to_dict(row) -> dict:
@@ -157,6 +178,7 @@ async def list_notifications(
 
     db = await _get_db()
     try:
+        await _auto_cleanup(db)
         rows = await db.execute_fetchall(query, params)
         notifications = [_row_to_dict(r) for r in rows]
         return {'notifications': notifications, 'count': len(notifications)}
@@ -326,6 +348,7 @@ async def http_list_notifications(request: Request) -> JSONResponse:
 
     db = await _get_db()
     try:
+        await _auto_cleanup(db)
         rows = await db.execute_fetchall(query, params)
         notifications = [_row_to_dict(r) for r in rows]
         return JSONResponse({'notifications': notifications, 'count': len(notifications)})
