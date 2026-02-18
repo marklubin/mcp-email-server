@@ -127,6 +127,8 @@ const oauthProvider = new OAuthProvider({
 	clientRegistrationEndpoint: "/register",
 	defaultHandler: GitHubHandler as any,
 	tokenEndpoint: "/token",
+	accessTokenTTL: 86400,
+	refreshTokenTTL: 2592000,
 });
 
 export default {
