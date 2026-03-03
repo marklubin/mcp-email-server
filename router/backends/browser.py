@@ -16,6 +16,7 @@ The get_rendered_content tool returns:
 The act tool uses these refs to interact with elements.
 """
 
+import logging
 import os
 import re
 import base64
@@ -24,6 +25,11 @@ from typing import Optional, Literal
 
 from fastmcp import FastMCP
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Route
+
+logger = logging.getLogger(__name__)
 
 CDP_HOST = os.environ.get('BROWSER_CDP_HOST', '127.0.0.1')
 CDP_PORT = int(os.environ.get('BROWSER_CDP_PORT', '9222'))
@@ -616,3 +622,63 @@ async def act(ref: str, text: Optional[str] = None) -> dict:
             }
     except Exception as e:
         return {'error': str(e), 'ref': ref}
+
+
+# =============================================================================
+# HTTP API endpoint for browser auth checks
+# =============================================================================
+
+async def http_auth_check(request: Request) -> JSONResponse:
+    """Navigate to a URL and check for auth indicators in page text.
+
+    Query params:
+        url: URL to navigate to
+        logged_in: comma-separated strings indicating logged-in state
+        logged_out: comma-separated strings indicating logged-out state
+
+    Returns JSON:
+        {url, title, auth_status, found_logged_in, found_logged_out}
+    """
+    url = request.query_params.get("url")
+    if not url:
+        return JSONResponse({"error": "url parameter required"}, status_code=400)
+
+    logged_in_indicators = [s.strip() for s in request.query_params.get("logged_in", "").split(",") if s.strip()]
+    logged_out_indicators = [s.strip() for s in request.query_params.get("logged_out", "").split(",") if s.strip()]
+
+    try:
+        page = await get_page()
+        response = await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+        # Wait a bit for dynamic content to render
+        await page.wait_for_timeout(2000)
+
+        title = await page.title()
+        text = await _extract_text_content(page)
+
+        found_logged_in = [ind for ind in logged_in_indicators if ind.lower() in text.lower()]
+        found_logged_out = [ind for ind in logged_out_indicators if ind.lower() in text.lower()]
+
+        if found_logged_in and not found_logged_out:
+            auth_status = "logged_in"
+        elif found_logged_out and not found_logged_in:
+            auth_status = "logged_out"
+        elif found_logged_in and found_logged_out:
+            auth_status = "ambiguous"
+        else:
+            auth_status = "unknown"
+
+        return JSONResponse({
+            "url": page.url,
+            "title": title,
+            "auth_status": auth_status,
+            "found_logged_in": found_logged_in,
+            "found_logged_out": found_logged_out,
+        })
+    except Exception as exc:
+        logger.exception("Browser auth check failed for %s", url)
+        return JSONResponse({"error": str(exc), "url": url}, status_code=502)
+
+
+browser_http_routes = [
+    Route("/browser/auth-check", http_auth_check, methods=["GET"]),
+]

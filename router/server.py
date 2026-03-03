@@ -92,7 +92,7 @@ class AuthMiddleware:
     """
 
     # Paths that don't require the MCP secret (internal/Tailscale use)
-    EXEMPT_PREFIXES = ('/lab/', '/notifications', '/discord/')
+    EXEMPT_PREFIXES = ('/lab/', '/notifications', '/discord/', '/browser/')
 
     def __init__(self, app, secret):
         self.app = app
@@ -137,6 +137,7 @@ def main():
         *lab.lab_http_routes,
         *notifications.notify_http_routes,
         *discord.discord_http_routes,
+        *browser.browser_http_routes,
         Mount('/', app=mcp_app),
     ])
 
@@ -149,6 +150,7 @@ def main():
     print(f'Lab HTTP API: /lab/pending, /lab/claim/{{id}}, /lab/report, /lab/documents/{{id}}')
     print(f'Notifications HTTP API: /notifications, /notifications/push, /notifications/summary')
     print(f'Discord HTTP API: /discord/validate, /discord/guilds, /discord/channels/{{id}}/messages')
+    print(f'Browser HTTP API: /browser/auth-check')
     uvicorn.run(app, host=host, port=port)
 
 
