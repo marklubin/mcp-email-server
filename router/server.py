@@ -14,13 +14,9 @@ from fastmcp import FastMCP
 
 # Import backends
 from backends import email
-from backends import kp3
 from backends import browser
-from backends import leetcode
 from backends import todoist
 from backends import blah
-from backends import letta
-from backends import lab
 from backends import notifications
 from backends import discord
 
@@ -29,13 +25,9 @@ MCP_SECRET = os.environ.get('MCP_SECRET', '')
 # Create router and mount backends
 router = FastMCP('mcp-router')
 router.mount(email.mcp, prefix='email')
-router.mount(kp3.mcp, prefix='kp3')
 router.mount(browser.mcp, prefix='browser')
-router.mount(leetcode.mcp, prefix='leetcode')
 router.mount(todoist.mcp, prefix='todoist')
 router.mount(blah.mcp, prefix='blah')
-router.mount(letta.mcp, prefix='letta')
-router.mount(lab.mcp, prefix='lab')
 router.mount(notifications.mcp, prefix='notify')
 router.mount(discord.mcp, prefix='discord')
 
@@ -43,7 +35,7 @@ router.mount(discord.mcp, prefix='discord')
 @router.tool()
 def health() -> dict:
     """Health check for the MCP router."""
-    return {'status': 'ok', 'backends': ['email', 'kp3', 'browser', 'leetcode', 'todoist', 'blah', 'letta', 'lab', 'notify', 'discord']}
+    return {'status': 'ok', 'backends': ['email', 'browser', 'todoist', 'blah', 'notify', 'discord', 'memory']}
 
 
 @router.tool()
@@ -87,12 +79,12 @@ def logs(lines: int = 50, service: str = "mcp-router") -> dict:
 class AuthMiddleware:
     """Check X-MCP-Secret header for MCP transport routes.
 
-    HTTP API routes (/lab/*, /notifications/*) are exempt — they're
-    accessed over Tailscale which provides network-level auth.
+    HTTP API routes (/notifications/*, /discord/*, /browser/*) are exempt —
+    they're accessed over Tailscale which provides network-level auth.
     """
 
     # Paths that don't require the MCP secret (internal/Tailscale use)
-    EXEMPT_PREFIXES = ('/lab/', '/notifications', '/discord/', '/browser/')
+    EXEMPT_PREFIXES = ('/notifications', '/discord/', '/browser/')
 
     def __init__(self, app, secret):
         self.app = app
@@ -131,10 +123,8 @@ def main():
 
     mcp_app = router.http_app()
 
-    # Combine lab HTTP API routes with MCP app
-    # Lab routes (/lab/*) are matched first, MCP SSE/HTTP is the catch-all
+    # HTTP API routes are matched first, MCP SSE/HTTP is the catch-all
     app = Starlette(lifespan=mcp_app.lifespan, routes=[
-        *lab.lab_http_routes,
         *notifications.notify_http_routes,
         *discord.discord_http_routes,
         *browser.browser_http_routes,
@@ -146,8 +136,7 @@ def main():
         app = AuthMiddleware(app, MCP_SECRET)
 
     print(f'MCP Router starting on {host}:{port}')
-    print('Mounted backends: email, kp3, browser, leetcode, todoist, blah, letta, lab, notify, discord')
-    print(f'Lab HTTP API: /lab/pending, /lab/claim/{{id}}, /lab/report, /lab/documents/{{id}}')
+    print('Mounted backends: email, browser, todoist, blah, notify, discord, memory')
     print(f'Notifications HTTP API: /notifications, /notifications/push, /notifications/summary')
     print(f'Discord HTTP API: /discord/validate, /discord/guilds, /discord/channels/{{id}}/messages')
     print(f'Browser HTTP API: /browser/auth-check')
