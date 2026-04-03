@@ -19,6 +19,7 @@ from backends import todoist
 from backends import blah
 from backends import notifications
 from backends import discord
+from backends import memory
 
 MCP_SECRET = os.environ.get('MCP_SECRET', '')
 
@@ -30,6 +31,7 @@ router.mount(todoist.mcp, prefix='todoist')
 router.mount(blah.mcp, prefix='blah')
 router.mount(notifications.mcp, prefix='notify')
 router.mount(discord.mcp, prefix='discord')
+router.mount(memory.mcp, prefix='memory')
 
 
 @router.tool()
