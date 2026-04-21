@@ -16,10 +16,11 @@ from fastmcp import FastMCP
 from backends import email
 from backends import browser
 from backends import todoist
-from backends import blah
 from backends import notifications
 from backends import discord
 from backends import memory
+from backends import twitter
+from backends import web
 
 MCP_SECRET = os.environ.get('MCP_SECRET', '')
 
@@ -28,16 +29,17 @@ router = FastMCP('mcp-router')
 router.mount(email.mcp, prefix='email')
 router.mount(browser.mcp, prefix='browser')
 router.mount(todoist.mcp, prefix='todoist')
-router.mount(blah.mcp, prefix='blah')
 router.mount(notifications.mcp, prefix='notify')
 router.mount(discord.mcp, prefix='discord')
 router.mount(memory.mcp, prefix='memory')
+router.mount(twitter.mcp, prefix='twitter')
+router.mount(web.mcp, prefix='web')
 
 
 @router.tool()
 def health() -> dict:
     """Health check for the MCP router."""
-    return {'status': 'ok', 'backends': ['email', 'browser', 'todoist', 'blah', 'notify', 'discord', 'memory']}
+    return {'status': 'ok', 'backends': ['email', 'browser', 'todoist', 'notify', 'discord', 'memory', 'twitter', 'web']}
 
 
 @router.tool()
@@ -138,7 +140,7 @@ def main():
         app = AuthMiddleware(app, MCP_SECRET)
 
     print(f'MCP Router starting on {host}:{port}')
-    print('Mounted backends: email, browser, todoist, blah, notify, discord, memory')
+    print('Mounted backends: email, browser, todoist, notify, discord, memory')
     print(f'Notifications HTTP API: /notifications, /notifications/push, /notifications/summary')
     print(f'Discord HTTP API: /discord/validate, /discord/guilds, /discord/channels/{{id}}/messages')
     print(f'Browser HTTP API: /browser/auth-check')
