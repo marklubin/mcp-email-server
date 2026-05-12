@@ -21,6 +21,7 @@ from backends import discord
 from backends import memory
 from backends import twitter
 from backends import web
+from backends import cartesia
 
 MCP_SECRET = os.environ.get('MCP_SECRET', '')
 
@@ -34,6 +35,7 @@ router.mount(discord.mcp, prefix='discord')
 router.mount(memory.mcp, prefix='memory')
 router.mount(twitter.mcp, prefix='twitter')
 router.mount(web.mcp, prefix='web')
+router.mount(cartesia.mcp, prefix='cartesia')
 
 
 @router.tool()
@@ -88,7 +90,7 @@ class AuthMiddleware:
     """
 
     # Paths that don't require the MCP secret (internal/Tailscale use)
-    EXEMPT_PREFIXES = ('/notifications', '/discord/', '/browser/')
+    EXEMPT_PREFIXES = ('/notifications', '/discord/', '/browser/', '/tts')
 
     def __init__(self, app, secret):
         self.app = app
@@ -132,6 +134,7 @@ def main():
         *notifications.notify_http_routes,
         *discord.discord_http_routes,
         *browser.browser_http_routes,
+        *cartesia.cartesia_http_routes,
         Mount('/', app=mcp_app),
     ])
 
