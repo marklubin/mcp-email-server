@@ -32,8 +32,12 @@ CARTESIA_VOICE_ID = os.environ.get(
     'CARTESIA_VOICE_ID', '71a7ad14-091c-4e8e-a314-022ece01c121'
 )
 CARTESIA_MODEL_ID = os.environ.get('CARTESIA_MODEL_ID', 'sonic-3')
+CARTESIA_DEFAULT_SPEED = float(os.environ.get('CARTESIA_SPEED', '0.85'))
 CARTESIA_VERSION = '2026-03-01'
 CARTESIA_URL = 'https://api.cartesia.ai/tts/bytes'
+
+# Cartesia accepts generation_config.speed in [0.6, 1.5]; clamp to be safe.
+SPEED_MIN, SPEED_MAX = 0.6, 1.5
 
 OUTPUT_FORMAT = {
     'container': 'wav',
@@ -57,12 +61,15 @@ def _fix_wav_sizes(audio: bytes) -> bytes:
     return bytes(buf)
 
 
-async def _synthesize(text: str) -> bytes:
+async def _synthesize(text: str, speed: float | None = None) -> bytes:
     """Call Cartesia /tts/bytes and return raw WAV audio."""
     if not CARTESIA_API_KEY:
         raise RuntimeError('CARTESIA_API_KEY not set')
     if not text or not text.strip():
         raise ValueError('text must be non-empty')
+
+    eff_speed = CARTESIA_DEFAULT_SPEED if speed is None else float(speed)
+    eff_speed = max(SPEED_MIN, min(SPEED_MAX, eff_speed))
 
     payload = {
         'model_id': CARTESIA_MODEL_ID,
@@ -70,6 +77,7 @@ async def _synthesize(text: str) -> bytes:
         'voice': {'mode': 'id', 'id': CARTESIA_VOICE_ID},
         'output_format': OUTPUT_FORMAT,
         'language': 'en',
+        'generation_config': {'speed': eff_speed},
     }
     headers = {
         'Authorization': f'Bearer {CARTESIA_API_KEY}',
@@ -88,7 +96,7 @@ async def _synthesize(text: str) -> bytes:
 
 
 @mcp.tool()
-async def tts(text: str) -> dict:
+async def tts(text: str, speed: float | None = None) -> dict:
     """Synthesize speech from text using Cartesia.
 
     Returns the audio as base64-encoded WAV plus format metadata. Decode
@@ -96,8 +104,10 @@ async def tts(text: str) -> dict:
 
     Args:
         text: The text to speak.
+        speed: Optional playback speed in [0.6, 1.5]. 1.0 is normal pace,
+            lower is slower. Defaults to the CARTESIA_SPEED env var (0.85).
     """
-    audio = await _synthesize(text)
+    audio = await _synthesize(text, speed=speed)
     return {
         'audio_base64': base64.b64encode(audio).decode('ascii'),
         'format': 'wav',
@@ -114,15 +124,20 @@ async def http_tts(request: Request) -> Response:
     rng = request.headers.get('range', '-')
     client = f'{request.client.host}:{request.client.port}' if request.client else '-'
     text = request.query_params.get('text', '')
+    speed_param = request.query_params.get('speed')
+    try:
+        speed = float(speed_param) if speed_param else None
+    except ValueError:
+        return JSONResponse({'error': f'speed must be a number, got: {speed_param!r}'}, status_code=400)
     logger.info(
-        'tts request method=%s client=%s ua=%r accept=%r range=%r text_len=%d',
-        request.method, client, ua, accept, rng, len(text),
+        'tts request method=%s client=%s ua=%r accept=%r range=%r text_len=%d speed=%s',
+        request.method, client, ua, accept, rng, len(text), speed,
     )
     if not text.strip():
         logger.warning('tts 400: empty text')
         return JSONResponse({'error': 'text query parameter required'}, status_code=400)
     try:
-        audio = await _synthesize(text)
+        audio = await _synthesize(text, speed=speed)
     except Exception as e:
         logger.exception('tts 502: cartesia call failed')
         return JSONResponse({'error': str(e)}, status_code=502)
