@@ -26,7 +26,7 @@ CARTESIA_API_KEY = os.environ.get('CARTESIA_API_KEY', '')
 CARTESIA_VOICE_ID = os.environ.get(
     'CARTESIA_VOICE_ID', '71a7ad14-091c-4e8e-a314-022ece01c121'
 )
-CARTESIA_MODEL_ID = os.environ.get('CARTESIA_MODEL_ID', 'sonic-2')
+CARTESIA_MODEL_ID = os.environ.get('CARTESIA_MODEL_ID', 'sonic-3')
 CARTESIA_VERSION = '2026-03-01'
 CARTESIA_URL = 'https://api.cartesia.ai/tts/bytes'
 
