@@ -13,6 +13,7 @@ MCP secret.
 
 import base64
 import os
+import struct
 
 import aiohttp
 from fastmcp import FastMCP
@@ -35,6 +36,21 @@ OUTPUT_FORMAT = {
     'encoding': 'pcm_s16le',
     'sample_rate': 44100,
 }
+
+
+def _fix_wav_sizes(audio: bytes) -> bytes:
+    # Cartesia streams audio and leaves RIFF and `data` chunk sizes as
+    # 0xFFFFFFFF, which makes many players stop after a fraction of a
+    # second. Rewrite both with real sizes derived from the buffer length.
+    if len(audio) < 12 or audio[:4] != b'RIFF' or audio[8:12] != b'WAVE':
+        return audio
+    data_idx = audio.find(b'data')
+    if data_idx < 0 or data_idx + 8 > len(audio):
+        return audio
+    buf = bytearray(audio)
+    buf[4:8] = struct.pack('<I', len(audio) - 8)
+    buf[data_idx + 4:data_idx + 8] = struct.pack('<I', len(audio) - (data_idx + 8))
+    return bytes(buf)
 
 
 async def _synthesize(text: str) -> bytes:
@@ -63,7 +79,8 @@ async def _synthesize(text: str) -> bytes:
             if resp.status != 200:
                 body = await resp.text()
                 raise RuntimeError(f'Cartesia API {resp.status}: {body[:500]}')
-            return await resp.read()
+            audio = await resp.read()
+    return _fix_wav_sizes(audio)
 
 
 @mcp.tool()
