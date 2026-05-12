@@ -8,9 +8,15 @@ To add a new backend:
 
 import os
 import json
+import logging
 import subprocess
 
 from fastmcp import FastMCP
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(name)s %(levelname)s %(message)s',
+)
 
 # Import backends
 from backends import email

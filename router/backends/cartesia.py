@@ -12,10 +12,14 @@ MCP secret.
 """
 
 import base64
+import logging
 import os
 import struct
+import time
 
 import aiohttp
+
+logger = logging.getLogger(__name__)
 from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -104,14 +108,37 @@ async def tts(text: str) -> dict:
 
 async def http_tts(request: Request) -> Response:
     """GET /tts?text=...  -> raw audio/wav bytes."""
+    started = time.monotonic()
+    ua = request.headers.get('user-agent', '-')
+    accept = request.headers.get('accept', '-')
+    rng = request.headers.get('range', '-')
+    client = f'{request.client.host}:{request.client.port}' if request.client else '-'
     text = request.query_params.get('text', '')
+    logger.info(
+        'tts request method=%s client=%s ua=%r accept=%r range=%r text_len=%d',
+        request.method, client, ua, accept, rng, len(text),
+    )
     if not text.strip():
+        logger.warning('tts 400: empty text')
         return JSONResponse({'error': 'text query parameter required'}, status_code=400)
     try:
         audio = await _synthesize(text)
     except Exception as e:
+        logger.exception('tts 502: cartesia call failed')
         return JSONResponse({'error': str(e)}, status_code=502)
-    return Response(audio, media_type='audio/wav')
+    elapsed = time.monotonic() - started
+    riff_size = struct.unpack('<I', audio[4:8])[0] if len(audio) >= 8 else -1
+    logger.info(
+        'tts 200 bytes=%d riff_size=%d elapsed=%.2fs',
+        len(audio), riff_size, elapsed,
+    )
+    headers = {
+        'Content-Length': str(len(audio)),
+        'Content-Disposition': 'inline; filename="speech.wav"',
+        'Accept-Ranges': 'none',
+        'Cache-Control': 'no-store',
+    }
+    return Response(audio, media_type='audio/wav', headers=headers)
 
 
 cartesia_http_routes = [
