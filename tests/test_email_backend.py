@@ -141,7 +141,38 @@ class TestSendEmail:
         assert len(patch_smtp) == 1
         sent = patch_smtp[0]
         assert sent['to'] == 'recipient@example.com'
+        assert sent['from'] == 'test@example.com'
         assert sent['subject'] == 'Test Subject'
+
+    async def test_send_email_accepts_optional_display_name(self, patch_smtp, env_vars):
+        """Should add a display name without changing the sender address."""
+        from router.backends.email import send_email
+
+        result = await call_tool(
+            send_email,
+            to='recipient@example.com',
+            subject='Test Subject',
+            body='Test body content',
+            from_name='Job Search Agent',
+        )
+
+        assert result['status'] == 'sent'
+        assert patch_smtp[0]['from'] == 'Job Search Agent <test@example.com>'
+
+    async def test_send_email_rejects_display_name_header_injection(self, patch_smtp, env_vars):
+        """Should reject newlines before constructing or sending a header."""
+        from router.backends.email import send_email
+
+        with pytest.raises(ValueError, match='newline'):
+            await call_tool(
+                send_email,
+                to='recipient@example.com',
+                subject='Test Subject',
+                body='Test body content',
+                from_name='Job Search Agent\r\nBcc: attacker@example.com',
+            )
+
+        assert patch_smtp == []
 
     async def test_send_email_uses_correct_smtp_settings(self, patch_smtp, env_vars):
         """Should use environment SMTP settings."""

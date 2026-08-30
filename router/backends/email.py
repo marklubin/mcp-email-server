@@ -1,13 +1,13 @@
 """Email backend for ProtonMail Bridge."""
 
 import os
-from email.header import decode_header
 from email import message_from_bytes
-from email.utils import parsedate_to_datetime
+from email.header import decode_header
+from email.utils import formataddr, parsedate_to_datetime
 
 import html2text
-from fastmcp import FastMCP
 from aioimaplib import IMAP4
+from fastmcp import FastMCP
 
 _html_converter = html2text.HTML2Text()
 _html_converter.body_width = 0
@@ -248,18 +248,35 @@ async def get_email(message_id: str, mailbox: str = 'INBOX') -> dict:
 
 
 @mcp.tool()
-async def send_email(to: str, subject: str, body: str) -> dict:
-    """Send an email via SMTP."""
-    import aiosmtplib
+async def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    from_name: str | None = None,
+) -> dict:
+    """Send an email via SMTP with an optional display name.
+
+    The authenticated Proton address remains the sender address. Existing
+    callers that omit ``from_name`` retain the original bare-address header.
+    """
     from email.message import EmailMessage
+
+    import aiosmtplib
 
     smtp_host = os.environ.get('PROTON_BRIDGE_HOST', '127.0.0.1')
     smtp_port = int(os.environ.get('PROTON_BRIDGE_SMTP_PORT', '1025'))
     smtp_user = os.environ.get('PROTON_BRIDGE_USER', '')
     smtp_pass = os.environ.get('PROTON_BRIDGE_PASSWORD', '')
 
+    if from_name is not None and ('\r' in from_name or '\n' in from_name):
+        raise ValueError('from_name must not contain newline characters')
+
     msg = EmailMessage()
-    msg['From'] = smtp_user
+    msg['From'] = (
+        formataddr((from_name.strip(), smtp_user))
+        if from_name and from_name.strip()
+        else smtp_user
+    )
     msg['To'] = to
     msg['Subject'] = subject
     msg.set_content(body)
