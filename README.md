@@ -102,6 +102,7 @@ Each backend lives in `router/backends/` and exposes tools under its mount prefi
 | `memory` | `memory_` | Agent memory store |
 | `twitter` | `twitter_` | Twitter read via twitterapi.io |
 | `web` | `web_` | Web search + contents via Exa |
+| `finance` | `finance_` | Read-only local finance data service |
 
 Also available but not currently mounted in `server.py`:
 
@@ -124,6 +125,20 @@ Uses [Exa](https://exa.ai) under the hood. Free tier: 1,000 searches/month.
 |------|-------------|
 | `web_search(query, num_results, search_type, include_text, include_domains, exclude_domains)` | Web search; optional inline text excerpts |
 | `web_get_contents(urls, max_chars)` | Fetch clean text for one or more URLs |
+
+### Finance Backend (prefix: `finance_`)
+
+This is a read-only gateway to a separate finance data service on the same host.
+Plaid credentials, sync operations, and account administration stay inside that
+service and are never exposed through MCP.
+
+| Tool | Description |
+|------|-------------|
+| `finance_summary(days)` | Bounded financial summary and freshness timestamp |
+| `finance_accounts(include_inactive, limit)` | Normalized account list (max 100) |
+| `finance_transactions(start_date, end_date, account_id, limit)` | Transactions for at most 366 days (max 500) |
+| `finance_changes(cursor, limit)` | Incremental transaction changes (max 500) |
+| `finance_sync_status()` | Connection health and data freshness |
 
 For detailed signatures of other backends, read the source — each tool's docstring is its contract.
 
@@ -197,6 +212,8 @@ EXA_API_KEY=             # web search
 TODOIST_API_TOKEN=       # todoist
 TWITTERAPI_IO_KEY=       # twitter
 DISCORD_TOKEN=           # discord
+FINANCE_SERVICE_URL=     # finance service loopback URL (default http://127.0.0.1:8090)
+FINANCE_SERVICE_TOKEN=   # bearer token shared with finance-data-service
 MESH_SERVER_URL=         # memory
 MESH_TOKEN=              # memory
 AGENT_MESH_MCP_URL=      # unified_memory (if mounted)
