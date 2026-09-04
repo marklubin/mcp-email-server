@@ -13,6 +13,7 @@ tasks; agents reopen or annotate instead.
 
 import asyncio
 import json
+import re
 import os
 import time
 from datetime import date, datetime
@@ -587,4 +588,51 @@ async def seed(units: list[dict], selected: str = None, dry_run: bool = True) ->
                 _, error = await _api(client, 'POST', f"/lists/{list_id}/tasks/{parent['id']}/move")
                 if error:
                     return {**error, 'report': report}
+        if not dry_run:
+            reorder_error = await _reorder_lanes(client, list_ids, units, selected)
+            if reorder_error:
+                return {**reorder_error, 'report': report}
     return {'dry_run': dry_run, 'created': created, 'skipped': skipped, 'report': report}
+
+
+def _depth_number(title: str) -> int:
+    match = re.match(r'Depth (\d+)', title or '')
+    return int(match.group(1)) if match else 99
+
+
+async def _reorder_lanes(client: httpx.AsyncClient, list_ids: dict[str, str], units: list[dict], selected: str | None) -> dict | None:
+    """Put units in curriculum order (Google inserts new tasks at the top) and depth
+    subtasks in depth order, then move the selected unit to the top of its lane."""
+    for lane, list_id in list_ids.items():
+        wanted = [f"{str(u.get('id', '')).strip()} - {str(u.get('title', '')).strip()}" for u in units if u.get('lane') == lane]
+        items, error = await _all_tasks(client, list_id)
+        if error:
+            return error
+        by_title = {str(item.get('title', '')).strip(): item for item in items if not item.get('parent')}
+        by_parent: dict[str, list[dict]] = {}
+        for item in items:
+            if item.get('parent'):
+                by_parent.setdefault(str(item['parent']), []).append(item)
+        present = [title for title in wanted if title in by_title]
+        current_top = [str(item.get('title', '')).strip() for item in items if not item.get('parent')]
+        if [title for title in current_top if title in set(present)] != present:
+            for title in reversed(present):
+                _, error = await _api(client, 'POST', f"/lists/{list_id}/tasks/{by_title[title]['id']}/move")
+                if error:
+                    return error
+        for title in present:
+            parent = by_title[title]
+            children = by_parent.get(str(parent['id']), [])
+            ordered = sorted(children, key=lambda c: (_depth_number(str(c.get('title', ''))), str(c.get('position', ''))))
+            if [c['id'] for c in children] != [c['id'] for c in ordered]:
+                for child in reversed(ordered):
+                    _, error = await _api(client, 'POST', f"/lists/{list_id}/tasks/{child['id']}/move", {'parent': parent['id']})
+                    if error:
+                        return error
+        if selected:
+            for title in present:
+                if title.startswith(selected + ' '):
+                    _, error = await _api(client, 'POST', f"/lists/{list_id}/tasks/{by_title[title]['id']}/move")
+                    if error:
+                        return error
+    return None

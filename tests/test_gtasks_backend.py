@@ -61,7 +61,7 @@ class FakeTasksApi:
             return MockResponse(200, {'items': [dict(item) for item in items]})
         if method == 'POST' and parts[-1] == 'tasks':
             self._counter += 1
-            task = {'id': f't{self._counter}', 'status': 'needsAction', 'position': f'{self._counter:05d}', **(json or {})}
+            task = {'id': f't{self._counter}', 'status': 'needsAction', 'position': f'{100000 - self._counter:05d}', **(json or {})}
             if params.get('parent'):
                 task['parent'] = params['parent']
             items.append(task)
@@ -72,11 +72,13 @@ class FakeTasksApi:
             return MockResponse(200, dict(task))
         if method == 'POST' and parts[-1] == 'move':
             task = next(item for item in items if item['id'] == parts[-2])
+            siblings = [item for item in items if item.get('parent') == task.get('parent') and item['id'] != task['id']]
             if params.get('previous'):
                 previous = next(item for item in items if item['id'] == params['previous'])
                 task['position'] = previous['position'] + 'z'
             else:
-                task['position'] = '00000'
+                lowest = min((s['position'] for s in siblings), default='50000')
+                task['position'] = '0' + lowest
             return MockResponse(200, dict(task))
         raise AssertionError(f'unexpected {method} {path}')
 
@@ -184,6 +186,31 @@ class TestSeedAndBoard:
         old = next(unit for unit in coding['units'] if unit['unit'] == 'COD-09')
         assert old['done'] and old['depths_done'] == 3
         assert 'Evidence: Done.' in old['notes']
+
+    async def test_seed_leaves_units_in_curriculum_order_and_depths_in_depth_order(self, api):
+        await seeded(api)
+        view = await call_tool(gtasks.board, lane='coding')
+        titles = [unit['unit'] for unit in view['lanes'][0]['units']]
+        assert titles == ['COD-03', 'COD-01', 'COD-09']  # selected first, then payload order
+        for unit in view['lanes'][0]['units']:
+            depths = [gtasks._depth_number(d['title']) for d in unit['depths']]
+            assert depths == sorted(depths)
+
+    async def test_seed_rerun_repairs_scrambled_order(self, api):
+        await seeded(api)
+        # scramble: move COD-09 to the top and a depth-3 subtask above depth 1
+        cod09 = next(t for t in api.tasks['L1'] if t.get('title', '').startswith('COD-09'))
+        cod09['position'] = '00000'
+        cod01 = next(t for t in api.tasks['L1'] if t.get('title', '').startswith('COD-01'))
+        depth3 = next(t for t in api.tasks['L1'] if t.get('parent') == cod01['id'] and t['title'].startswith('Depth 3'))
+        depth3['position'] = '00000'
+        result = await call_tool(gtasks.seed, units=UNITS, selected='COD-03', dry_run=False)
+        assert result['created'] == 0
+        view = await call_tool(gtasks.board, lane='coding')
+        assert [unit['unit'] for unit in view['lanes'][0]['units']] == ['COD-03', 'COD-01', 'COD-09']
+        hash_maps = next(unit for unit in view['lanes'][0]['units'] if unit['unit'] == 'COD-01')
+        assert [gtasks._depth_number(d['title']) for d in hash_maps['depths']] == [1, 2, 3]
+        assert hash_maps['current_depth'] == 2
 
     async def test_seed_is_idempotent(self, api):
         await seeded(api)
