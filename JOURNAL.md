@@ -14,7 +14,7 @@ Short entries documenting each episode of work on this repo.
 - `scripts/gtasks_auth.py`: one-time PKCE loopback flow that writes the three env lines (never prints the token).
 - `.env.example` and README documented; 17 backend tests.
 
-**Result:** Tools exist and return `not_configured` until the refresh token lands in `.env`. Refresh tokens only last if the OAuth app is published rather than in Testing.
+**Result:** Authorized against Mark's personal Google account the same night and seeded with 44 units. Two follow-ups landed during the seed: quota errors (403 Quota Exceeded after ~20 units) now back off and retry, and the seed reorders lanes to curriculum order and depth subtasks to depth order because Google inserts new tasks at the top. Refresh tokens only last if the OAuth app is published rather than in Testing. Lane list titles come from `GOOGLE_TASKS_LANES`.
 
 **Files touched:**
 - `router/backends/gtasks.py`, `router/server.py`, `scripts/gtasks_auth.py`, `tests/test_gtasks_backend.py`, `.env.example`, `README.md`
