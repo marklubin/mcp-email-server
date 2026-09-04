@@ -251,6 +251,41 @@ class TestTaskActions:
         assert bad_due['code'] == 'invalid_argument'
         assert api.calls == []
 
+    async def test_quota_errors_are_retried_with_backoff(self, api, monkeypatch):
+        await seeded(api)
+        real = api.request
+        state = {'calls': 0}
+
+        async def flaky(method, url, **kwargs):
+            state['calls'] += 1
+            if state['calls'] <= 2:
+                return MockResponse(403, {'error': {'message': 'Quota Exceeded', 'errors': [{'reason': 'quotaExceeded'}]}})
+            return await real(method, url, **kwargs)
+
+        sleeps = []
+
+        async def fake_sleep(seconds):
+            sleeps.append(seconds)
+
+        monkeypatch.setattr(gtasks.asyncio, 'sleep', fake_sleep)
+        api.request = flaky
+        result = await call_tool(gtasks.tasks, action='get', list='coding', task='COD-03')
+        assert 'error' not in result
+        assert sleeps == [2, 4]
+
+    async def test_persistent_quota_error_is_reported_after_retries(self, api, monkeypatch):
+        async def always(method, url, **kwargs):
+            return MockResponse(403, {'error': {'message': 'Quota Exceeded'}})
+
+        async def fake_sleep(seconds):
+            return None
+
+        monkeypatch.setattr(gtasks.asyncio, 'sleep', fake_sleep)
+        await call_tool(gtasks.lists)  # warm the token
+        api.request = always
+        result = await call_tool(gtasks.lists)
+        assert result['code'] == 'upstream_error' and result['status'] == 403
+
     async def test_upstream_timeout_is_reported(self, api):
         async def boom(*args, **kwargs):
             raise httpx.TimeoutException('slow')

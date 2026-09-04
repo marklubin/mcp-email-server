@@ -11,6 +11,7 @@ this router's environment. The backend never creates or deletes lists and never 
 tasks; agents reopen or annotate instead.
 """
 
+import asyncio
 import json
 import os
 import time
@@ -26,6 +27,9 @@ API = 'https://tasks.googleapis.com/tasks/v1'
 TOKEN_URI = 'https://oauth2.googleapis.com/token'
 REQUEST_TIMEOUT_SECONDS = 20.0
 PAGE_SIZE = 100
+# Google enforces a small per-minute, per-user quota on the Tasks API. Bulk work such as
+# seeding trips it; back off and retry rather than failing the whole operation.
+QUOTA_RETRY_DELAYS = (2, 4, 8, 16, 30, 30)
 
 DEFAULT_LANES = {
     'coding': 'Coding',
@@ -121,19 +125,24 @@ async def _api(
     token = await _access_token(client)
     if isinstance(token, dict):
         return None, token
-    try:
-        response = await client.request(
-            method,
-            API + path,
-            headers={'Authorization': f'Bearer {token}'},
-            params={k: v for k, v in (params or {}).items() if v is not None},
-            json=body,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-    except httpx.TimeoutException:
-        return None, _error('Google Tasks request timed out', 'timeout')
-    except httpx.HTTPError as exc:
-        return None, _error(f'Google Tasks request failed: {exc.__class__.__name__}', 'upstream_unavailable')
+    for attempt, delay in enumerate((*QUOTA_RETRY_DELAYS, None)):
+        try:
+            response = await client.request(
+                method,
+                API + path,
+                headers={'Authorization': f'Bearer {token}'},
+                params={k: v for k, v in (params or {}).items() if v is not None},
+                json=body,
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+        except httpx.TimeoutException:
+            return None, _error('Google Tasks request timed out', 'timeout')
+        except httpx.HTTPError as exc:
+            return None, _error(f'Google Tasks request failed: {exc.__class__.__name__}', 'upstream_unavailable')
+        if response.status_code in (403, 429) and delay is not None and _is_quota_error(response):
+            await asyncio.sleep(delay)
+            continue
+        break
     if response.status_code == 401:
         _token_cache['token'] = None
         return None, _error('Google Tasks rejected the access token', 'auth_failed', status=401)
@@ -150,6 +159,16 @@ async def _api(
         return response.json(), None
     except ValueError:
         return None, _error('Google Tasks returned a non-JSON body', 'upstream_error')
+
+
+def _is_quota_error(response: httpx.Response) -> bool:
+    if response.status_code == 429:
+        return True
+    try:
+        message = json.dumps(response.json()).lower()
+    except ValueError:
+        message = response.text.lower()
+    return 'quota' in message or 'ratelimit' in message or 'rate limit' in message
 
 
 async def _all_lists(client: httpx.AsyncClient) -> tuple[list[dict], dict | None]:
