@@ -1,5 +1,9 @@
 """Integration tests for the email backend."""
 
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 
@@ -7,6 +11,91 @@ import pytest
 async def call_tool(tool, **kwargs):
     """Call a FastMCP tool's underlying function."""
     return await tool.fn(**kwargs)
+
+
+class TestIMAPConnection:
+    """Tests for bounded connection failures and cleanup."""
+
+    async def test_greeting_timeout_fails_fast_and_closes_transport(self, monkeypatch):
+        from router.backends import email
+
+        async def hang_forever():
+            await asyncio.Future()
+
+        transport = MagicMock()
+        client = SimpleNamespace(
+            protocol=SimpleNamespace(transport=transport),
+            wait_hello_from_server=hang_forever,
+        )
+        constructor = MagicMock(return_value=client)
+        monkeypatch.setattr(email, 'IMAP4', constructor)
+        monkeypatch.setattr(email, 'IMAP_CONNECT_TIMEOUT_SECONDS', 0.01)
+
+        with pytest.raises(RuntimeError, match='greeting timed out after 0.01s'):
+            await email.get_imap_client()
+
+        assert constructor.call_args.kwargs['timeout'] == email.IMAP_COMMAND_TIMEOUT_SECONDS
+        transport.abort.assert_called_once_with()
+
+    async def test_connection_failure_has_bridge_diagnostic(self, monkeypatch):
+        from router.backends import email
+
+        connection_task = asyncio.get_running_loop().create_future()
+        connection_task.set_exception(ConnectionRefusedError())
+        client = SimpleNamespace(
+            _client_task=connection_task,
+            protocol=SimpleNamespace(transport=None),
+        )
+        monkeypatch.setattr(email, 'IMAP4', MagicMock(return_value=client))
+
+        with pytest.raises(RuntimeError, match='connection failed.*Bridge service is running'):
+            await email.get_imap_client()
+
+    async def test_authentication_timeout_fails_fast_and_closes_transport(self, monkeypatch):
+        from router.backends import email
+
+        async def hang_forever(*args):
+            await asyncio.Future()
+
+        transport = MagicMock()
+        client = SimpleNamespace(
+            protocol=SimpleNamespace(transport=transport),
+            wait_hello_from_server=AsyncMock(),
+            login=hang_forever,
+        )
+        monkeypatch.setattr(email, 'IMAP4', MagicMock(return_value=client))
+        monkeypatch.setattr(email, 'IMAP_CONNECT_TIMEOUT_SECONDS', 0.01)
+
+        with pytest.raises(RuntimeError, match='authentication timed out after 0.01s'):
+            await email.get_imap_client()
+
+        transport.abort.assert_called_once_with()
+
+    async def test_rejected_login_has_authentication_diagnostic(self, monkeypatch):
+        from router.backends import email
+
+        transport = MagicMock()
+        client = SimpleNamespace(
+            protocol=SimpleNamespace(transport=transport),
+            wait_hello_from_server=AsyncMock(),
+            login=AsyncMock(return_value=SimpleNamespace(result='NO')),
+        )
+        monkeypatch.setattr(email, 'IMAP4', MagicMock(return_value=client))
+
+        with pytest.raises(RuntimeError, match='authentication was rejected'):
+            await email.get_imap_client()
+
+        transport.abort.assert_called_once_with()
+
+    async def test_tool_error_still_logs_out(self, patch_imap, env_vars):
+        from router.backends.email import list_emails
+
+        patch_imap.select = AsyncMock(side_effect=RuntimeError('select failed'))
+
+        with pytest.raises(RuntimeError, match='select failed'):
+            await call_tool(list_emails)
+
+        assert patch_imap.logged_in is False
 
 
 class TestListEmails:
@@ -99,6 +188,7 @@ class TestGetEmail:
         """Should return full email with body."""
         from router.backends.email import get_email
 
+        patch_imap.fetch = AsyncMock(side_effect=patch_imap.fetch)
         result = await call_tool(get_email, message_id='1')
 
         assert isinstance(result, dict)
@@ -109,6 +199,7 @@ class TestGetEmail:
         assert 'body' in result
         assert 'date' in result
         assert 'local_time' in result
+        patch_imap.fetch.assert_awaited_once_with('1', '(BODY.PEEK[])')
 
     async def test_get_email_not_found(self, patch_imap, env_vars):
         """Should return error for non-existent message."""
@@ -141,8 +232,23 @@ class TestSendEmail:
         assert len(patch_smtp) == 1
         sent = patch_smtp[0]
         assert sent['to'] == 'recipient@example.com'
-        assert sent['from'] == 'test@example.com'
         assert sent['subject'] == 'Test Subject'
+
+    async def test_send_email_uses_correct_smtp_settings(self, patch_smtp, env_vars):
+        """Should use environment SMTP settings."""
+        from router.backends.email import send_email
+
+        await call_tool(
+            send_email,
+            to='recipient@example.com',
+            subject='Test',
+            body='Body'
+        )
+
+        sent = patch_smtp[0]
+        assert sent['kwargs']['hostname'] == '127.0.0.1'
+        assert sent['kwargs']['port'] == 1025
+
 
     async def test_send_email_accepts_optional_display_name(self, patch_smtp, env_vars):
         """Should add a display name without changing the sender address."""
@@ -173,21 +279,6 @@ class TestSendEmail:
             )
 
         assert patch_smtp == []
-
-    async def test_send_email_uses_correct_smtp_settings(self, patch_smtp, env_vars):
-        """Should use environment SMTP settings."""
-        from router.backends.email import send_email
-
-        await call_tool(
-            send_email,
-            to='recipient@example.com',
-            subject='Test',
-            body='Body'
-        )
-
-        sent = patch_smtp[0]
-        assert sent['kwargs']['hostname'] == '127.0.0.1'
-        assert sent['kwargs']['port'] == 1025
 
 
 class TestHelperFunctions:

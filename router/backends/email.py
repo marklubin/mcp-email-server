@@ -1,13 +1,15 @@
 """Email backend for ProtonMail Bridge."""
 
+import asyncio
 import os
-from email import message_from_bytes
+from contextlib import asynccontextmanager, suppress
 from email.header import decode_header
+from email import message_from_bytes
 from email.utils import formataddr, parsedate_to_datetime
 
 import html2text
-from aioimaplib import IMAP4
 from fastmcp import FastMCP
+from aioimaplib import IMAP4
 
 _html_converter = html2text.HTML2Text()
 _html_converter.body_width = 0
@@ -19,6 +21,8 @@ IMAP_HOST = os.environ.get('PROTON_BRIDGE_HOST', '127.0.0.1')
 IMAP_PORT = int(os.environ.get('PROTON_BRIDGE_IMAP_PORT', '1143'))
 IMAP_USER = os.environ.get('PROTON_BRIDGE_USER', '')
 IMAP_PASS = os.environ.get('PROTON_BRIDGE_PASSWORD', '')
+IMAP_CONNECT_TIMEOUT_SECONDS = float(os.environ.get('PROTON_BRIDGE_IMAP_CONNECT_TIMEOUT', '5'))
+IMAP_COMMAND_TIMEOUT_SECONDS = 30
 
 mcp = FastMCP('email')
 
@@ -67,53 +71,150 @@ def sort_emails_by_date(emails, newest_first=True):
 
 async def get_imap_client():
     """Create and authenticate IMAP client."""
-    client = IMAP4(host=IMAP_HOST, port=IMAP_PORT, timeout=30)
-    await client.wait_hello_from_server()
-    await client.login(IMAP_USER, IMAP_PASS)
+    client = IMAP4(host=IMAP_HOST, port=IMAP_PORT, timeout=IMAP_COMMAND_TIMEOUT_SECONDS)
+
+    connection_task = getattr(client, '_client_task', None)
+    if connection_task is not None:
+        try:
+            await asyncio.wait_for(connection_task, IMAP_CONNECT_TIMEOUT_SECONDS)
+        except TimeoutError as exc:
+            await _force_close_imap_client(client)
+            raise RuntimeError(
+                f'Proton Bridge IMAP connection timed out after '
+                f'{IMAP_CONNECT_TIMEOUT_SECONDS:g}s at {IMAP_HOST}:{IMAP_PORT}; '
+                'the Bridge service may be unresponsive'
+            ) from exc
+        except Exception as exc:
+            await _force_close_imap_client(client)
+            raise RuntimeError(
+                f'Proton Bridge IMAP connection failed at {IMAP_HOST}:{IMAP_PORT} '
+                f'({type(exc).__name__}); verify that the Bridge service is running'
+            ) from exc
+
+    try:
+        await asyncio.wait_for(
+            client.wait_hello_from_server(),
+            IMAP_CONNECT_TIMEOUT_SECONDS,
+        )
+    except TimeoutError as exc:
+        await _force_close_imap_client(client)
+        raise RuntimeError(
+            f'Proton Bridge IMAP greeting timed out after '
+            f'{IMAP_CONNECT_TIMEOUT_SECONDS:g}s at {IMAP_HOST}:{IMAP_PORT}; '
+            'the Bridge service accepted a connection but is not responding'
+        ) from exc
+    except Exception as exc:
+        await _force_close_imap_client(client)
+        raise RuntimeError(
+            f'Proton Bridge IMAP greeting failed at {IMAP_HOST}:{IMAP_PORT} '
+            f'({type(exc).__name__}); verify that the Bridge service is healthy'
+        ) from exc
+
+    try:
+        result = await asyncio.wait_for(
+            client.login(IMAP_USER, IMAP_PASS),
+            IMAP_CONNECT_TIMEOUT_SECONDS,
+        )
+    except TimeoutError as exc:
+        await _force_close_imap_client(client)
+        raise RuntimeError(
+            f'Proton Bridge IMAP authentication timed out after '
+            f'{IMAP_CONNECT_TIMEOUT_SECONDS:g}s at {IMAP_HOST}:{IMAP_PORT}; '
+            'the Bridge service may be unresponsive'
+        ) from exc
+    except Exception as exc:
+        await _force_close_imap_client(client)
+        raise RuntimeError(
+            f'Proton Bridge IMAP authentication failed at {IMAP_HOST}:{IMAP_PORT} '
+            f'({type(exc).__name__}); verify the Bridge account session and credentials'
+        ) from exc
+
+    if result.result != 'OK':
+        await _force_close_imap_client(client)
+        raise RuntimeError(
+            f'Proton Bridge IMAP authentication was rejected at {IMAP_HOST}:{IMAP_PORT}; '
+            'verify the Bridge account session and credentials'
+        )
+
     return client
+
+
+async def _force_close_imap_client(client):
+    """Close the IMAP transport without waiting for a responsive server."""
+    connection_task = getattr(client, '_client_task', None)
+    if connection_task is not None and not connection_task.done():
+        connection_task.cancel()
+        with suppress(asyncio.CancelledError, Exception):
+            await connection_task
+
+    protocol = getattr(client, 'protocol', None)
+    transport = getattr(protocol, 'transport', None)
+    if transport is not None:
+        transport.abort()
+
+
+async def _logout_imap_client(client):
+    """Best-effort logout followed by an unconditional transport close."""
+    try:
+        await asyncio.wait_for(
+            client.logout(),
+            IMAP_CONNECT_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        pass
+    finally:
+        await _force_close_imap_client(client)
+
+
+@asynccontextmanager
+async def authenticated_imap_client():
+    """Yield an authenticated client and always release its connection."""
+    client = await get_imap_client()
+    try:
+        yield client
+    finally:
+        await _logout_imap_client(client)
 
 
 @mcp.tool()
 async def list_emails(mailbox: str = 'INBOX', limit: int = 10) -> list[dict]:
     """List recent emails with subject, sender, and date (newest first)."""
-    client = await get_imap_client()
-    await client.select(mailbox)
+    async with authenticated_imap_client() as client:
+        await client.select(mailbox)
 
-    result = await client.search('ALL')
-    if result.result != 'OK':
-        await client.logout()
-        return []
+        result = await client.search('ALL')
+        if result.result != 'OK':
+            return []
 
-    msg_ids = result.lines[0].decode().split()
-    # Fetch more than limit since we'll sort by date
-    fetch_count = min(len(msg_ids), limit * 2)
-    msg_ids = msg_ids[-fetch_count:]
+        msg_ids = result.lines[0].decode().split()
+        # Fetch more than limit since we'll sort by date
+        fetch_count = min(len(msg_ids), limit * 2)
+        msg_ids = msg_ids[-fetch_count:]
 
-    emails = []
-    for msg_id in msg_ids:
-        result = await client.fetch(msg_id, '(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])')
-        if result.result == 'OK':
-            for line in result.lines:
-                raw = bytes(line) if isinstance(line, (bytes, bytearray)) else None
-                if raw and len(raw) > 20:
-                    try:
-                        msg = message_from_bytes(raw)
-                        if msg.get('From') or msg.get('Subject'):
-                            date_raw = msg.get('Date', '')
-                            emails.append({
-                                'id': msg_id,
-                                'from': decode_mime_header(msg.get('From', '')),
-                                'subject': decode_mime_header(msg.get('Subject', '')),
-                                'date': date_raw,
-                                'local_time': format_local_time(date_raw),
-                            })
-                            break
-                    except:
-                        pass
+        emails = []
+        for msg_id in msg_ids:
+            result = await client.fetch(msg_id, '(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])')
+            if result.result == 'OK':
+                for line in result.lines:
+                    raw = bytes(line) if isinstance(line, (bytes, bytearray)) else None
+                    if raw and len(raw) > 20:
+                        try:
+                            msg = message_from_bytes(raw)
+                            if msg.get('From') or msg.get('Subject'):
+                                date_raw = msg.get('Date', '')
+                                emails.append({
+                                    'id': msg_id,
+                                    'from': decode_mime_header(msg.get('From', '')),
+                                    'subject': decode_mime_header(msg.get('Subject', '')),
+                                    'date': date_raw,
+                                    'local_time': format_local_time(date_raw),
+                                })
+                                break
+                        except Exception:
+                            pass
 
-    await client.logout()
-    # Sort by date (newest first) and limit results
-    return sort_emails_by_date(emails)[:limit]
+        # Sort by date (newest first) and limit results
+        return sort_emails_by_date(emails)[:limit]
 
 
 @mcp.tool()
@@ -134,117 +235,110 @@ async def search_emails(
     Returns:
         List of matching emails with id, from, subject, date
     """
-    client = await get_imap_client()
-    await client.select(mailbox)
+    async with authenticated_imap_client() as client:
+        await client.select(mailbox)
 
-    # Build IMAP search criteria
-    # Search in FROM, SUBJECT, and optionally BODY
-    search_criteria = f'OR FROM "{query}" SUBJECT "{query}"'
-    if search_body:
-        search_criteria = f'OR ({search_criteria}) BODY "{query}"'
+        # Build IMAP search criteria
+        # Search in FROM, SUBJECT, and optionally BODY
+        search_criteria = f'OR FROM "{query}" SUBJECT "{query}"'
+        if search_body:
+            search_criteria = f'OR ({search_criteria}) BODY "{query}"'
 
-    result = await client.search(search_criteria)
-    if result.result != 'OK':
-        await client.logout()
-        return []
+        result = await client.search(search_criteria)
+        if result.result != 'OK':
+            return []
 
-    msg_ids = result.lines[0].decode().split()
-    if not msg_ids:
-        await client.logout()
-        return []
+        msg_ids = result.lines[0].decode().split()
+        if not msg_ids:
+            return []
 
-    # Fetch more than limit since we'll sort by date
-    fetch_count = min(len(msg_ids), limit * 2)
-    msg_ids = msg_ids[-fetch_count:]
+        # Fetch more than limit since we'll sort by date
+        fetch_count = min(len(msg_ids), limit * 2)
+        msg_ids = msg_ids[-fetch_count:]
 
-    emails = []
-    for msg_id in msg_ids:
-        result = await client.fetch(msg_id, '(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])')
-        if result.result == 'OK':
-            for line in result.lines:
-                raw = bytes(line) if isinstance(line, (bytes, bytearray)) else None
-                if raw and len(raw) > 20:
-                    try:
-                        msg = message_from_bytes(raw)
-                        if msg.get('From') or msg.get('Subject'):
-                            date_raw = msg.get('Date', '')
-                            emails.append({
-                                'id': msg_id,
-                                'from': decode_mime_header(msg.get('From', '')),
-                                'subject': decode_mime_header(msg.get('Subject', '')),
-                                'date': date_raw,
-                                'local_time': format_local_time(date_raw),
-                            })
-                            break
-                    except:
-                        pass
+        emails = []
+        for msg_id in msg_ids:
+            result = await client.fetch(msg_id, '(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])')
+            if result.result == 'OK':
+                for line in result.lines:
+                    raw = bytes(line) if isinstance(line, (bytes, bytearray)) else None
+                    if raw and len(raw) > 20:
+                        try:
+                            msg = message_from_bytes(raw)
+                            if msg.get('From') or msg.get('Subject'):
+                                date_raw = msg.get('Date', '')
+                                emails.append({
+                                    'id': msg_id,
+                                    'from': decode_mime_header(msg.get('From', '')),
+                                    'subject': decode_mime_header(msg.get('Subject', '')),
+                                    'date': date_raw,
+                                    'local_time': format_local_time(date_raw),
+                                })
+                                break
+                        except Exception:
+                            pass
 
-    await client.logout()
-    # Sort by date (newest first) and limit results
-    return sort_emails_by_date(emails)[:limit]
+        # Sort by date (newest first) and limit results
+        return sort_emails_by_date(emails)[:limit]
 
 
 @mcp.tool()
 async def get_email(message_id: str, mailbox: str = 'INBOX') -> dict:
     """Get full email content by message ID."""
-    client = await get_imap_client()
-    await client.select(mailbox)
+    async with authenticated_imap_client() as client:
+        await client.select(mailbox)
 
-    result = await client.fetch(message_id, '(RFC822)')
-    if result.result != 'OK':
-        await client.logout()
-        return {'error': 'Message not found'}
+        result = await client.fetch(message_id, '(BODY.PEEK[])')
+        if result.result != 'OK':
+            return {'error': 'Message not found'}
 
-    raw_email = None
-    for line in result.lines:
-        if isinstance(line, (bytes, bytearray)) and len(line) > 500:
-            raw_email = bytes(line)
-            break
+        raw_email = None
+        for line in result.lines:
+            if isinstance(line, (bytes, bytearray)) and len(line) > 500:
+                raw_email = bytes(line)
+                break
 
-    if not raw_email:
-        await client.logout()
-        return {'error': 'Could not find message body'}
+        if not raw_email:
+            return {'error': 'Could not find message body'}
 
-    try:
-        msg = message_from_bytes(raw_email)
-    except Exception as e:
-        await client.logout()
-        return {'error': f'Parse error: {e}'}
+        try:
+            msg = message_from_bytes(raw_email)
+        except Exception as e:
+            return {'error': f'Parse error: {e}'}
 
-    body = ''
-    plain_body = ''
-    if msg.is_multipart():
-        for part in msg.walk():
-            ct = part.get_content_type()
-            if ct == 'text/html':
-                payload = part.get_payload(decode=True)
-                if payload:
-                    body = _html_converter.handle(payload.decode('utf-8', errors='replace')).strip()
-                    break
-            elif ct == 'text/plain' and not plain_body:
-                payload = part.get_payload(decode=True)
-                if payload:
-                    plain_body = payload.decode('utf-8', errors='replace')
-        if not body:
-            body = plain_body
-    else:
-        payload = msg.get_payload(decode=True)
-        if payload:
-            body = payload.decode('utf-8', errors='replace')
-            if msg.get_content_type() == 'text/html':
-                body = _html_converter.handle(body).strip()
+        body = ''
+        plain_body = ''
+        if msg.is_multipart():
+            for part in msg.walk():
+                ct = part.get_content_type()
+                if ct == 'text/html':
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        body = _html_converter.handle(payload.decode('utf-8', errors='replace')).strip()
+                        break
+                elif ct == 'text/plain' and not plain_body:
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        plain_body = payload.decode('utf-8', errors='replace')
+            if not body:
+                body = plain_body
+        else:
+            payload = msg.get_payload(decode=True)
+            if payload:
+                body = payload.decode('utf-8', errors='replace')
+                if msg.get_content_type() == 'text/html':
+                    body = _html_converter.handle(body).strip()
 
-    await client.logout()
-    date_raw = msg.get('Date', '')
-    return {
-        'id': message_id,
-        'from': decode_mime_header(msg.get('From', '')),
-        'to': decode_mime_header(msg.get('To', '')),
-        'subject': decode_mime_header(msg.get('Subject', '')),
-        'date': date_raw,
-        'local_time': format_local_time(date_raw),
-        'body': body[:5000],
-    }
+        date_raw = msg.get('Date', '')
+        return {
+            'id': message_id,
+            'from': decode_mime_header(msg.get('From', '')),
+            'to': decode_mime_header(msg.get('To', '')),
+            'subject': decode_mime_header(msg.get('Subject', '')),
+            'date': date_raw,
+            'local_time': format_local_time(date_raw),
+            'body': body[:5000],
+        }
 
 
 @mcp.tool()
@@ -259,17 +353,16 @@ async def send_email(
     The authenticated Proton address remains the sender address. Existing
     callers that omit ``from_name`` retain the original bare-address header.
     """
-    from email.message import EmailMessage
-
     import aiosmtplib
+
+    if from_name is not None and ('\r' in from_name or '\n' in from_name):
+        raise ValueError('from_name must not contain newline characters')
+    from email.message import EmailMessage
 
     smtp_host = os.environ.get('PROTON_BRIDGE_HOST', '127.0.0.1')
     smtp_port = int(os.environ.get('PROTON_BRIDGE_SMTP_PORT', '1025'))
     smtp_user = os.environ.get('PROTON_BRIDGE_USER', '')
     smtp_pass = os.environ.get('PROTON_BRIDGE_PASSWORD', '')
-
-    if from_name is not None and ('\r' in from_name or '\n' in from_name):
-        raise ValueError('from_name must not contain newline characters')
 
     msg = EmailMessage()
     msg['From'] = (
