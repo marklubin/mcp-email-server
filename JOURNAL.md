@@ -4,6 +4,21 @@ Short entries documenting each episode of work on this repo.
 
 ---
 
+## 2026-09-03: Google Tasks preparation-board backend
+
+**Goal:** Give every agent runtime one non-brittle path to Mark's interview-prep board after the custom job-search desk was retired.
+
+**Changes:**
+- New `router/backends/gtasks.py` (FastMCP `gtasks`): `lists`, `board`, `tasks`, `seed`; refresh-token auth with in-process access-token cache; typed errors (`not_configured`, `auth_failed`, `not_found`, `ambiguous`, `timeout`, `upstream_error`); no list creation, no deletes.
+- Mounted as `gtasks_*` in `router/server.py`; health lists it.
+- `scripts/gtasks_auth.py`: one-time PKCE loopback flow that writes the three env lines (never prints the token).
+- `.env.example` and README documented; 17 backend tests.
+
+**Result:** Tools exist and return `not_configured` until the refresh token lands in `.env`. Refresh tokens only last if the OAuth app is published rather than in Testing.
+
+**Files touched:**
+- `router/backends/gtasks.py`, `router/server.py`, `scripts/gtasks_auth.py`, `tests/test_gtasks_backend.py`, `.env.example`, `README.md`
+
 ## 2026-02-01: Add Todoist Backend
 
 **Goal:** Add Todoist task management backend with a streamlined 2-tool API.

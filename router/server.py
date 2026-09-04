@@ -29,6 +29,7 @@ from backends import twitter
 from backends import web
 from backends import cartesia
 from backends import finance
+from backends import gtasks
 
 MCP_SECRET = os.environ.get('MCP_SECRET', '')
 
@@ -44,12 +45,13 @@ router.mount(twitter.mcp, prefix='twitter')
 router.mount(web.mcp, prefix='web')
 router.mount(cartesia.mcp, prefix='cartesia')
 router.mount(finance.mcp, prefix='finance')
+router.mount(gtasks.mcp, prefix='gtasks')
 
 
 @router.tool()
 def health() -> dict:
     """Health check for the MCP router."""
-    return {'status': 'ok', 'backends': ['email', 'browser', 'todoist', 'notify', 'discord', 'memory', 'twitter', 'web', 'finance']}
+    return {'status': 'ok', 'backends': ['email', 'browser', 'todoist', 'notify', 'discord', 'memory', 'twitter', 'web', 'finance', 'gtasks']}
 
 
 @router.tool()
@@ -151,7 +153,7 @@ def main():
         app = AuthMiddleware(app, MCP_SECRET)
 
     print(f'MCP Router starting on {host}:{port}')
-    print('Mounted backends: email, browser, todoist, notify, discord, memory, twitter, web, cartesia, finance')
+    print('Mounted backends: email, browser, todoist, notify, discord, memory, twitter, web, cartesia, finance, gtasks')
     print(f'Notifications HTTP API: /notifications, /notifications/push, /notifications/summary')
     print(f'Discord HTTP API: /discord/validate, /discord/guilds, /discord/channels/{{id}}/messages')
     print(f'Browser HTTP API: /browser/auth-check')

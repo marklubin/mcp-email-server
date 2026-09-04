@@ -73,6 +73,22 @@ In Cloudflare Dashboard → Workers & Pages → Workers VPC:
 cd cloudflare/worker && npx wrangler deploy
 ```
 
+## Google Tasks backend (`gtasks_*`)
+
+Mark's interview-preparation board lives in Google Tasks: one list per lane (Coding,
+System design, AI systems, Behavioral and projects), one task per curriculum unit titled
+`<ID> - <title>`, one subtask per depth. The backend derives the board and applies
+bounded changes; it never creates or deletes lists and never deletes tasks.
+
+Tools: `gtasks_lists`, `gtasks_board`, `gtasks_tasks` (list, get, add, complete, reopen,
+note, move, update), `gtasks_seed` (idempotent curriculum load, dry run by default).
+
+Credentials: a long-lived OAuth refresh token for Mark's Google account. Produce it once
+with `python3 scripts/gtasks_auth.py <client_secret.json>` (Desktop-app OAuth client
+from a Google Cloud project with the Tasks API enabled and the app **published**, not in
+Testing mode, or the token expires weekly). Append the three lines it writes to `.env`
+and restart the router. Optional `GOOGLE_TASKS_LANES` overrides list titles.
+
 ## Deployment
 
 The canonical deployed instance runs on **oxnard** as the systemd unit `mcp-router@mark.service`.
