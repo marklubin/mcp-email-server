@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager, suppress
 from email.header import decode_header
 from email import message_from_bytes
 from email.utils import formataddr, parsedate_to_datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import html2text
 from fastmcp import FastMCP
@@ -23,6 +24,18 @@ IMAP_USER = os.environ.get('PROTON_BRIDGE_USER', '')
 IMAP_PASS = os.environ.get('PROTON_BRIDGE_PASSWORD', '')
 IMAP_CONNECT_TIMEOUT_SECONDS = float(os.environ.get('PROTON_BRIDGE_IMAP_CONNECT_TIMEOUT', '5'))
 IMAP_COMMAND_TIMEOUT_SECONDS = 30
+
+# Timezone used to render the ``local_time`` field for emails. Defaults to
+# UTC so the value is stable regardless of the host's TZ; set to an IANA
+# zone (e.g. ``America/Los_Angeles``) via the
+# ``PROTON_BRIDGE_LOCAL_TIMEZONE`` environment variable to present the
+# wall-clock the way the canonical consumer expects. An unrecognised
+# name falls back to UTC rather than crashing the service.
+LOCAL_TIMEZONE_NAME = os.environ.get('PROTON_BRIDGE_LOCAL_TIMEZONE', 'UTC')
+try:
+    LOCAL_TIMEZONE = ZoneInfo(LOCAL_TIMEZONE_NAME)
+except ZoneInfoNotFoundError:
+    LOCAL_TIMEZONE = ZoneInfo('UTC')
 
 mcp = FastMCP('email')
 
@@ -73,12 +86,17 @@ def parse_email_date(date_str):
 
 
 def format_local_time(date_str):
-    """Convert email date to local time string."""
+    """Convert email date to the configured ``LOCAL_TIMEZONE`` string.
+
+    Uses :data:`LOCAL_TIMEZONE` (driven by the
+    ``PROTON_BRIDGE_LOCAL_TIMEZONE`` env var) rather than the host's
+    local timezone so the rendered wall-clock is stable across hosts
+    and matches what the canonical consumer expects.
+    """
     parsed = parse_email_date(date_str)
     if not parsed:
         return None
-    # Convert to local time
-    local_dt = parsed.astimezone()
+    local_dt = parsed.astimezone(LOCAL_TIMEZONE)
     return local_dt.strftime('%Y-%m-%d %H:%M')
 
 

@@ -3,6 +3,7 @@
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -338,6 +339,60 @@ class TestHelperFunctions:
 
         result = format_local_time('invalid')
         assert result is None
+
+    def test_format_local_time_uses_configured_timezone(self):
+        """Regression: local_time must reflect LOCAL_TIMEZONE, not host TZ.
+
+        On Oxnard the host runs in UTC, so a header with ``-0700`` was
+        previously rendered as the UTC wall-clock (16:14) rather than
+        the canonical consumer's expected America/Los_Angeles wall-clock
+        (09:14). This pins the corrected behaviour for message 7521.
+        """
+        from router.backends import email
+
+        previous_name = email.LOCAL_TIMEZONE_NAME
+        previous_tz = email.LOCAL_TIMEZONE
+        try:
+            email.LOCAL_TIMEZONE_NAME = 'America/Los_Angeles'
+            email.LOCAL_TIMEZONE = ZoneInfo('America/Los_Angeles')
+            result = email.format_local_time(
+                'Wed, 09 Sep 2026 09:14:06 -0700'
+            )
+        finally:
+            email.LOCAL_TIMEZONE_NAME = previous_name
+            email.LOCAL_TIMEZONE = previous_tz
+
+        assert result == '2026-09-09 09:14'
+
+    def test_format_local_time_defaults_to_utc(self, monkeypatch):
+        """Without an env override, local_time should render UTC."""
+        from importlib import reload
+        from router.backends import email as email_module
+
+        monkeypatch.delenv('PROTON_BRIDGE_LOCAL_TIMEZONE', raising=False)
+        reload(email_module)
+
+        result = email_module.format_local_time(
+            'Wed, 09 Sep 2026 09:14:06 -0700'
+        )
+        assert result == '2026-09-09 16:14'
+
+    def test_format_local_time_invalid_timezone_falls_back_to_utc(
+        self, monkeypatch
+    ):
+        """An unrecognised TZ name must not crash the service."""
+        from importlib import reload
+        from router.backends import email as email_module
+
+        monkeypatch.setenv('PROTON_BRIDGE_LOCAL_TIMEZONE', 'Mars/Olympus')
+        reload(email_module)
+
+        assert email_module.LOCAL_TIMEZONE_NAME == 'Mars/Olympus'
+        # Falls back to UTC for rendering, so no crash and stable output
+        result = email_module.format_local_time(
+            'Wed, 09 Sep 2026 09:14:06 -0700'
+        )
+        assert result == '2026-09-09 16:14'
 
     def test_sort_emails_by_date(self):
         """Should sort emails newest first."""

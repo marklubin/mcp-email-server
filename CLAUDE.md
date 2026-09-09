@@ -125,6 +125,7 @@ PROTON_BRIDGE_IMAP_PORT=1143
 PROTON_BRIDGE_SMTP_PORT=1025
 PROTON_BRIDGE_USER=user@proton.me
 PROTON_BRIDGE_PASSWORD=bridge-password
+PROTON_BRIDGE_LOCAL_TIMEZONE=UTC  # IANA; e.g. America/Los_Angeles for canonical consumers
 ```
 
 ## Email Backend Tools
@@ -138,7 +139,7 @@ PROTON_BRIDGE_PASSWORD=bridge-password
 
 All email responses include:
 - `date` - Original date string with timezone
-- `local_time` - Normalized local time (YYYY-MM-DD HH:MM)
+- `local_time` - Normalized local time (YYYY-MM-DD HH:MM) rendered in `PROTON_BRIDGE_LOCAL_TIMEZONE` (IANA name, defaults to UTC). The value does not depend on the host's timezone.
 
 ## Cloudflare Tunnel Setup
 
