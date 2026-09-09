@@ -353,3 +353,124 @@ class TestHelperFunctions:
 
         assert result[0]['date'] == 'Tue, 28 Jan 2026 10:00:00 +0000'
         assert result[2]['date'] == 'Sun, 26 Jan 2026 10:00:00 +0000'
+
+    def test_sort_emails_by_date_handles_naive_dates(self):
+        """Regression: tz-naive Date headers must not crash sorting.
+
+        Mixing offset-aware and offset-naive datetimes raises
+        ``TypeError: can't compare offset-naive and offset-aware datetimes``.
+        The live ``list_emails`` tool was returning empty for limits >= 40
+        because the fetch window then included messages whose Date header
+        arrived without a timezone. Sorting must coerce every key to a
+        timezone-aware datetime.
+        """
+        from router.backends.email import sort_emails_by_date
+
+        emails = [
+            {'date': 'Wed, 09 Sep 2026 17:54:56 +0000'},  # aware
+            {'date': 'Wed, 09 Sep 2026 14:00:11'},         # naive
+            {'date': 'Wed, 09 Sep 2026 16:12:35 +0000'},  # aware
+            {'date': 'not a date'},                        # unparseable
+        ]
+
+        result = sort_emails_by_date(emails, newest_first=True)
+
+        # Should not raise and should keep all entries
+        assert len(result) == 4
+        # Newest aware date is first
+        assert result[0]['date'] == 'Wed, 09 Sep 2026 17:54:56 +0000'
+        # The naive-date message lands ahead of the second aware date
+        # because it was treated as UTC, which sorts between them
+        aware_dates = [e['date'] for e in result if '+0000' in e['date']]
+        assert aware_dates == [
+            'Wed, 09 Sep 2026 17:54:56 +0000',
+            'Wed, 09 Sep 2026 16:12:35 +0000',
+        ]
+        # The naive-date message is present and not at the bottom
+        assert {'date': 'Wed, 09 Sep 2026 14:00:11'} in result
+        # Unparseable dates fall back to the epoch and sort to the end
+        assert result[-1]['date'] == 'not a date'
+
+    def test_parse_email_date_returns_aware_datetime(self):
+        """Regression: parse_email_date must always return tz-aware UTC.
+
+        Without this, the sort key for a tz-naive Date header raises
+        TypeError when compared against the aware epoch fallback.
+        """
+        from router.backends.email import parse_email_date
+
+        aware = parse_email_date('Wed, 09 Sep 2026 17:54:56 +0000')
+        naive_input = parse_email_date('Wed, 09 Sep 2026 14:00:11')
+        epoch = parse_email_date('1 Jan 1970 00:00:00 +0000')
+
+        assert aware is not None and aware.tzinfo is not None
+        assert naive_input is not None and naive_input.tzinfo is not None
+        assert epoch is not None and epoch.tzinfo is not None
+        # Comparable without raising
+        assert naive_input < aware
+
+    async def test_list_emails_handles_mixed_naive_and_aware_dates(
+        self, patch_imap, env_vars
+    ):
+        """Regression: list_emails must not crash on tz-naive Date headers.
+
+        With a wider fetch window (limit * 2), the result inevitably
+        contains messages whose Date header arrived without a timezone.
+        Earlier versions of the code raised TypeError during the final
+        ``sort_emails_by_date(emails)[:limit]`` and the tool returned
+        ``[]`` (the FastMCP layer swallowed the exception). This test
+        pins the corrected behaviour.
+        """
+        from router.backends.email import list_emails
+
+        # Inject an extra message whose Date header has no timezone
+        naive_email = {
+            'id': '4',
+            'from': 'naive@example.com',
+            'subject': 'No timezone',
+            'date': 'Wed, 09 Sep 2026 14:00:11',
+            'body': 'x' * 600,
+        }
+        patch_imap.emails[naive_email['id']] = naive_email
+
+        result = await call_tool(list_emails, mailbox='INBOX', limit=20)
+
+        assert isinstance(result, list)
+        assert len(result) >= 4
+        # The naive-date message is among the returned headers
+        ids = [e['id'] for e in result]
+        assert '4' in ids
+
+    async def test_list_emails_limit_above_fetch_window_does_not_crash(
+        self, patch_imap, env_vars
+    ):
+        """Regression: a limit that fetches many naive-date messages.
+
+        In production, ``limit >= 40`` consistently surfaced an empty
+        result because ProtonMail Bridge returns at least one
+        timezone-naive Date header once the fetch window exceeds 80
+        messages, and ``sort_emails_by_date`` then raised TypeError.
+        """
+        from router.backends.email import list_emails
+
+        # Seed enough messages that some have naive Date headers
+        for i in range(5, 45):
+            # Half aware, half naive — mirrors the live mailbox mix
+            date = (
+                f'Tue, {28 + (i % 5):02d} Jan 2026 10:00:00 +0000'
+                if i % 2 == 0
+                else f'Tue, {28 + (i % 5):02d} Jan 2026 10:00:00'
+            )
+            patch_imap.emails[str(i)] = {
+                'id': str(i),
+                'from': f'sender{i}@example.com',
+                'subject': f'Message {i}',
+                'date': date,
+                'body': 'x' * 600,
+            }
+
+        for limit in (20, 40, 50, 100):
+            result = await call_tool(list_emails, mailbox='INBOX', limit=limit)
+            assert isinstance(result, list), f'limit={limit} returned non-list'
+            assert len(result) > 0, f'limit={limit} returned empty list'
+            assert len(result) <= limit, f'limit={limit} returned too many'

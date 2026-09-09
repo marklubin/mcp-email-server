@@ -41,13 +41,35 @@ def decode_mime_header(header):
 
 
 def parse_email_date(date_str):
-    """Parse email date string to datetime for sorting."""
+    """Parse email date string to a tz-aware UTC datetime for sorting.
+
+    ``email.utils.parsedate_to_datetime`` returns an offset-naive
+    ``datetime`` when the input RFC 2822 ``Date`` header lacks a timezone
+    (e.g. ``Wed, 09 Sep 2026 14:00:11``). Mixing those naive values with
+    the offset-aware epoch fallback used by :func:`sort_emails_by_date`
+    raised ``TypeError: can't compare offset-naive and offset-aware
+    datetimes`` during the final ``sorted(...)`` call, which surfaced to
+    callers as an empty ``list_emails`` result once the fetch window
+    (limit * 2) grew large enough to include such a header.
+
+    The narrowest durable fix is to coerce every successfully parsed
+    datetime to UTC-aware here, so the sort key is always comparable.
+    Naive values are treated as UTC (RFC 2822 leaves the default
+    unspecified; ProtonMail Bridge occasionally omits the timezone for
+    older messages and the mailbox client is the source of truth).
+    """
     if not date_str:
         return None
     try:
-        return parsedate_to_datetime(date_str)
+        parsed = parsedate_to_datetime(date_str)
     except Exception:
         return None
+    if parsed is None:
+        return None
+    if parsed.tzinfo is None:
+        from datetime import timezone
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def format_local_time(date_str):
