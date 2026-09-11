@@ -112,16 +112,18 @@ Each backend lives in `router/backends/` and exposes tools under its mount prefi
 |---------|--------|---------|
 | `email` | `email_` | ProtonMail Bridge — list/search/get/send |
 | `browser` | `browser_` | Playwright-over-CDP browser automation |
-| `todoist` | `todoist_` | Todoist tasks/projects |
-| `notifications` | `notify_` | Push notifications + inbox |
-| `discord` | `discord_` | Discord (via user token) |
 | `memory` | `memory_` | Agent memory store |
-| `twitter` | `twitter_` | Twitter read via twitterapi.io |
 | `web` | `web_` | Web search + contents via Exa |
 | `finance` | `finance_` | Read-only local finance data service |
+| `gtasks` | `gtasks_` | Google Tasks preparation board |
+| `cartesia` | `cartesia_` | Text-to-speech |
 
 Also available but not currently mounted in `server.py`:
 
+- `todoist.py` — Todoist tasks/projects.
+- `notifications.py` — notification MCP tools; its internal HTTP routes remain enabled.
+- `discord.py` — Discord MCP tools; its internal HTTP routes remain enabled.
+- `twitter.py` — Twitter read tools via twitterapi.io.
 - `unified_memory.py` — proxies all synix MCP tools from the agent-mesh server on salinas. Wire it up by importing + mounting if you want to replace or augment `memory`.
 
 ### Email Backend (prefix: `email_`)
@@ -219,7 +221,7 @@ PROTON_BRIDGE_USER=you@proton.me
 PROTON_BRIDGE_PASSWORD=bridge-password
 ```
 
-Backend-specific keys (only required if the backend is mounted):
+Integration-specific keys (only required when the corresponding MCP or HTTP integration is enabled):
 
 ```bash
 EXA_API_KEY=             # web search

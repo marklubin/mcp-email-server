@@ -23,6 +23,28 @@ class TestHealthTool:
         assert 'backends' in result
         assert 'email' in result['backends']
 
+    def test_health_omits_unpublished_backends(self):
+        """Health should report only backends published through MCP."""
+        from router.server import health
+
+        result = call_tool(health)
+
+        assert {'todoist', 'notify', 'discord', 'twitter'}.isdisjoint(
+            result['backends']
+        )
+
+
+class TestPublishedToolSurface:
+    """Tests for the aggregate MCP catalog exposed to clients."""
+
+    async def test_omits_disabled_tool_groups(self):
+        from router.server import router
+
+        tools = await router.get_tools()
+        disabled_prefixes = ('todoist_', 'notify_', 'discord_', 'twitter_')
+
+        assert not any(name.startswith(disabled_prefixes) for name in tools)
+
 
 class TestLogsTool:
     """Tests for logs tool."""
