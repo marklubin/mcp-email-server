@@ -3,9 +3,7 @@
 	"name": "mcp-router-proxy",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-03-10",
-	"compatibility_flags": [
-		"nodejs_compat"
-	],
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
 	/**
 	 * Secrets (set via wrangler secret put):
 	 * - GITHUB_CLIENT_ID
@@ -20,20 +18,20 @@
 		{
 			"binding": "MCP_BACKEND",
 			"service_id": "019c06bc-943b-7e33-afa4-033d4c820b68",
-			"remote": true
-		}
+			"remote": true,
+		},
 	],
 
 	"kv_namespaces": [
 		{
 			"binding": "OAUTH_KV",
-			"id": "db6b112174f2449ebe3748708b948720"
-		}
+			"id": "db6b112174f2449ebe3748708b948720",
+		},
 	],
 	"observability": {
-		"enabled": true
+		"enabled": true,
 	},
 	"dev": {
-		"port": 8788
-	}
+		"port": 8788,
+	},
 }

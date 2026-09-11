@@ -12,6 +12,7 @@ import logging
 import subprocess
 
 from fastmcp import FastMCP
+from tool_metadata import ToolMetadataMiddleware
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,6 +36,7 @@ MCP_SECRET = os.environ.get('MCP_SECRET', '')
 
 # Create router and mount backends
 router = FastMCP('mcp-router')
+router.add_middleware(ToolMetadataMiddleware())
 router.mount(email.mcp, prefix='email')
 router.mount(browser.mcp, prefix='browser')
 router.mount(todoist.mcp, prefix='todoist')

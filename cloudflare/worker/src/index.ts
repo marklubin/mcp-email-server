@@ -1,13 +1,9 @@
-import OAuthProvider, { type AuthProps } from "@cloudflare/workers-oauth-provider";
+import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import { GitHubHandler } from "./github-handler";
 
-// Context from the auth process, encrypted & stored in the auth token
-type Props = {
-	login: string;
-	name: string;
-	email: string;
-	accessToken: string;
-};
+const PUBLIC_ORIGIN = "https://mcp-router-proxy.melubin.workers.dev";
+const MCP_RESOURCE = `${PUBLIC_ORIGIN}/mcp`;
+const MCP_SCOPES = ["mcp:access"];
 
 /**
  * MCP Proxy Handler
@@ -15,7 +11,7 @@ type Props = {
  * After OAuth authentication, proxies MCP requests to the backend
  * server via Workers VPC (Cloudflare Tunnel). No public DNS exposure.
  */
-async function handleMCPProxy(request: Request, env: Env, authProps?: AuthProps<Props>): Promise<Response> {
+async function handleMCPProxy(request: Request, env: Env): Promise<Response> {
 	const url = new URL(request.url);
 
 	// Build request to private backend via VPC
@@ -23,7 +19,6 @@ async function handleMCPProxy(request: Request, env: Env, authProps?: AuthProps<
 	const backendUrl = `http://mcp-router.internal${url.pathname}${url.search}`;
 
 	console.log(`[MCP Proxy] ${request.method} ${url.pathname} -> VPC backend`);
-	console.log(`[MCP Proxy] MCP_SECRET set:`, !!env.MCP_SECRET, `length:`, env.MCP_SECRET?.length || 0);
 
 	// Clone headers and add our shared secret
 	const headers = new Headers();
@@ -31,7 +26,7 @@ async function handleMCPProxy(request: Request, env: Env, authProps?: AuthProps<
 	// Copy relevant headers from the original request
 	for (const [key, value] of request.headers.entries()) {
 		// Skip hop-by-hop headers and authorization (we use X-MCP-Secret instead)
-		if (!['host', 'authorization', 'connection', 'keep-alive', 'transfer-encoding'].includes(key.toLowerCase())) {
+		if (!["host", "authorization", "connection", "keep-alive", "transfer-encoding"].includes(key.toLowerCase())) {
 			headers.set(key, value);
 		}
 	}
@@ -48,35 +43,38 @@ async function handleMCPProxy(request: Request, env: Env, authProps?: AuthProps<
 			duplex: "half",
 		});
 
-		const body = await response.text();
-		console.log(`[MCP Proxy] Backend response: ${response.status} - ${body.substring(0, 200)}`);
-		return new Response(body, {
+		console.log(`[MCP Proxy] Backend response: ${response.status}`);
+		return new Response(response.body, {
 			status: response.status,
-			headers: response.headers
+			statusText: response.statusText,
+			headers: response.headers,
 		});
 	} catch (error) {
 		console.error(`[MCP Proxy] Backend error:`, error);
-		return new Response(JSON.stringify({
-			jsonrpc: "2.0",
-			id: "proxy-error",
-			error: { code: -32000, message: `Backend error: ${error}` }
-		}), {
-			status: 502,
-			headers: { "Content-Type": "application/json" }
-		});
+		return new Response(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: "proxy-error",
+				error: { code: -32000, message: `Backend error: ${error}` },
+			}),
+			{
+				status: 502,
+				headers: { "Content-Type": "application/json" },
+			},
+		);
 	}
 }
 
 // Create a route handler for /mcp that proxies to the backend
 function createMCPHandler(path: string) {
 	return {
-		fetch: async (request: Request, env: Env, _ctx: ExecutionContext, authProps: AuthProps<Props>) => {
+		fetch: async (request: Request, env: Env) => {
 			const url = new URL(request.url);
 			if (url.pathname === path || url.pathname.startsWith(path + "/")) {
-				return handleMCPProxy(request, env, authProps);
+				return handleMCPProxy(request, env);
 			}
 			return new Response("Not Found", { status: 404 });
-		}
+		},
 	};
 }
 
@@ -91,32 +89,42 @@ async function handleHealthCheck(request: Request, env: Env): Promise<Response |
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				"Accept": "application/json, text/event-stream",
+				Accept: "application/json, text/event-stream",
 				"X-MCP-Secret": env.MCP_SECRET,
 			},
 			body: JSON.stringify({
 				jsonrpc: "2.0",
 				id: "health",
 				method: "initialize",
-				params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "health-check", version: "1.0" } }
+				params: {
+					protocolVersion: "2024-11-05",
+					capabilities: {},
+					clientInfo: { name: "health-check", version: "1.0" },
+				},
 			}),
 		});
 		const body = await response.text();
-		return new Response(JSON.stringify({
-			status: "ok",
-			backend_status: response.status,
-			backend_response: body.substring(0, 200),
-		}), {
-			headers: { "Content-Type": "application/json" }
-		});
+		return new Response(
+			JSON.stringify({
+				status: "ok",
+				backend_status: response.status,
+				backend_response: body.substring(0, 200),
+			}),
+			{
+				headers: { "Content-Type": "application/json" },
+			},
+		);
 	} catch (error) {
-		return new Response(JSON.stringify({
-			status: "error",
-			error: String(error),
-		}), {
-			status: 502,
-			headers: { "Content-Type": "application/json" }
-		});
+		return new Response(
+			JSON.stringify({
+				status: "error",
+				error: String(error),
+			}),
+			{
+				status: 502,
+				headers: { "Content-Type": "application/json" },
+			},
+		);
 	}
 }
 
@@ -127,6 +135,17 @@ const oauthProvider = new OAuthProvider({
 	clientRegistrationEndpoint: "/register",
 	defaultHandler: GitHubHandler as any,
 	tokenEndpoint: "/token",
+	scopesSupported: MCP_SCOPES,
+	resourceMetadata: {
+		resource: MCP_RESOURCE,
+		authorization_servers: [PUBLIC_ORIGIN],
+		scopes_supported: MCP_SCOPES,
+		bearer_methods_supported: ["header"],
+		resource_name: "Oxnard Remote MCP",
+	},
+	clientIdMetadataDocumentEnabled: true,
+	allowPlainPKCE: false,
+	allowImplicitFlow: false,
 	accessTokenTTL: 86400,
 	refreshTokenTTL: 2592000,
 });
@@ -139,5 +158,5 @@ export default {
 
 		// Otherwise delegate to OAuth provider
 		return oauthProvider.fetch(request, env, ctx);
-	}
+	},
 };

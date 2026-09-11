@@ -5,7 +5,7 @@ Extensible MCP server that aggregates multiple backends behind a single endpoint
 ## Architecture
 
 ```
-Claude → CF Worker (OAuth) → Workers VPC → CF Tunnel → MCP Router → [Backends]
+Remote MCP client → CF Worker (OAuth) → Workers VPC → CF Tunnel → MCP Router → [Backends]
                                    │                        ↓
                             (private backbone)         email backend → ProtonMail Bridge
                                                        (add more backends here)
@@ -193,18 +193,16 @@ Also append the prefix to the `health()` backend list.
 
 4. Commit and run `./scripts/deploy.sh`. Tools appear as `yourbackend_your_tool`.
 
-## Claude Config
+## Remote MCP endpoint
 
-```json
-{
-  "mcpServers": {
-    "router": {
-      "url": "https://mcp-router-proxy.melubin.workers.dev/mcp",
-      "transport": "sse"
-    }
-  }
-}
-```
+Use `https://mcp-router-proxy.melubin.workers.dev/mcp` as a Streamable HTTP
+MCP endpoint. The Cloudflare Worker handles OAuth, then streams MCP traffic to
+the private router through Workers VPC.
+
+In ChatGPT developer mode, add the URL as a custom connector and complete the
+GitHub OAuth flow. Only the GitHub users listed in
+`cloudflare/worker/src/github-handler.ts` can connect. Refresh the connector
+after deploying router tool changes or Worker OAuth changes.
 
 ## Environment Variables
 

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
+import { AuthorizationError, type AuthRequest, type OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { Hono } from "hono";
 import { Octokit } from "octokit";
 import { fetchUpstreamAuthToken, getUpstreamAuthorizeUrl, type Props } from "./utils";
@@ -18,7 +18,23 @@ import {
 const app = new Hono<{ Bindings: Env & { OAUTH_PROVIDER: OAuthHelpers } }>();
 
 app.get("/authorize", async (c) => {
-	const oauthReqInfo = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
+	let oauthReqInfo: AuthRequest;
+	try {
+		oauthReqInfo = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
+	} catch (error) {
+		if (!(error instanceof AuthorizationError)) throw error;
+		if (!error.redirectUri) {
+			return c.text(error.description, 400);
+		}
+
+		const redirect = new URL(error.redirectUri);
+		redirect.searchParams.set("error", error.code);
+		redirect.searchParams.set("error_description", error.description);
+		if (error.state) redirect.searchParams.set("state", error.state);
+		if (error.issuer) redirect.searchParams.set("iss", error.issuer);
+		return c.redirect(redirect.toString(), 302);
+	}
+
 	const { clientId } = oauthReqInfo;
 	if (!clientId) {
 		return c.text("Invalid request", 400);
@@ -29,7 +45,9 @@ app.get("/authorize", async (c) => {
 		// Skip approval dialog but still create secure state and bind to session
 		const { stateToken } = await createOAuthState(oauthReqInfo, c.env.OAUTH_KV);
 		const { setCookie: sessionBindingCookie } = await bindStateToSession(stateToken);
-		return redirectToGithub(c.req.raw, stateToken, { "Set-Cookie": sessionBindingCookie });
+		return redirectToGithub(c.req.raw, stateToken, {
+			"Set-Cookie": sessionBindingCookie,
+		});
 	}
 
 	// Generate CSRF protection for the approval form
@@ -39,9 +57,9 @@ app.get("/authorize", async (c) => {
 		client: await c.env.OAUTH_PROVIDER.lookupClient(clientId),
 		csrfToken,
 		server: {
-			description: "This is a demo MCP Remote Server using GitHub for authentication.",
+			description: "Private access to Mark's Oxnard MCP router.",
 			logo: "https://avatars.githubusercontent.com/u/314135?s=200&v=4",
-			name: "Cloudflare GitHub MCP Server",
+			name: "Oxnard Remote MCP",
 		},
 		setCookie,
 		state: { oauthReqInfo },
@@ -100,11 +118,7 @@ app.post("/authorize", async (c) => {
 	}
 });
 
-async function redirectToGithub(
-	request: Request,
-	stateToken: string,
-	headers: Record<string, string> = {},
-) {
+async function redirectToGithub(request: Request, stateToken: string, headers: Record<string, string> = {}) {
 	return new Response(null, {
 		headers: {
 			...headers,
@@ -169,7 +183,9 @@ app.get("/callback", async (c) => {
 	if (errResponse) return errResponse;
 
 	// Fetch the user info from GitHub
-	const user = await new Octokit({ auth: accessToken }).rest.users.getAuthenticated();
+	const user = await new Octokit({
+		auth: accessToken,
+	}).rest.users.getAuthenticated();
 	const { login, name, email } = user.data;
 
 	// Only allow specific GitHub users
