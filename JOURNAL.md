@@ -4,6 +4,26 @@ Short entries documenting each episode of work on this repo.
 
 ---
 
+## 2026-09-11: Modernize the ChatGPT MCP connector
+
+**Goal:** Bring the public Oxnard MCP endpoint up to the current ChatGPT custom-connector and OAuth discovery contract.
+
+**Changes:**
+- Added current OAuth protected-resource discovery, CIMD/DCR support, S256-only PKCE, and streaming proxy responses in the Cloudflare Worker.
+- Added stable titles, annotations, and output schemas for all router tools.
+- Updated Worker dependencies, configuration, documentation, and connector troubleshooting guidance.
+
+**Validation:**
+- Router test suite: 162 passed, excluding the live browser suite whose local CDP endpoint was unavailable.
+- Worker typecheck, dependency audit, and Wrangler dry run passed; dependency audit reported zero vulnerabilities.
+- Deployed Cloudflare Worker version `dea673fb-16f0-4b93-b1b3-1bf01ed65916`.
+- Live checks returned 200 for health and both OAuth metadata resources; unauthenticated `/mcp` returned 401 with the required `resource_metadata` challenge.
+
+**Result:** The public endpoint at `https://mcp-router-proxy.melubin.workers.dev/mcp` is deployed and ready to reconnect in ChatGPT.
+
+**Files touched:**
+- `cloudflare/worker/`, `router/server.py`, `router/tool_metadata.py`, `tests/test_tool_metadata.py`, `README.md`
+
 ## 2026-09-03: Google Tasks preparation-board backend
 
 **Goal:** Give every agent runtime one non-brittle path to Mark's interview-prep board after the custom job-search desk was retired.
