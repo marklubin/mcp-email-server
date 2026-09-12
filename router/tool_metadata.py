@@ -39,9 +39,6 @@ _PROFILE_TOOLS: dict[SafetyProfile, frozenset[str]] = {
         "email_list_emails",
         "email_search_emails",
         "email_get_email",
-        "memory_search",
-        "memory_get_context",
-        "memory_list_buckets",
         "finance_summary",
         "finance_accounts",
         "finance_transactions",
@@ -52,11 +49,6 @@ _PROFILE_TOOLS: dict[SafetyProfile, frozenset[str]] = {
         "cartesia_tts",
     }),
     READ_OPEN: frozenset({
-        "browser_screenshot",
-        "browser_get_content",
-        "browser_wait_for",
-        "browser_get_page_info",
-        "browser_get_rendered_content",
         "web_search",
         "web_get_contents",
     }),
@@ -64,19 +56,10 @@ _PROFILE_TOOLS: dict[SafetyProfile, frozenset[str]] = {
         "gtasks_seed",
     }),
     DESTRUCTIVE_PRIVATE: frozenset({
-        "memory_ingest",
         "gtasks_tasks",
     }),
     WRITE_OPEN: frozenset({
         "email_send_email",
-        "browser_navigate",
-        "browser_new_page",
-    }),
-    DESTRUCTIVE_OPEN: frozenset({
-        "browser_click",
-        "browser_type_text",
-        "browser_evaluate",
-        "browser_act",
     }),
 }
 
@@ -88,8 +71,6 @@ KNOWN_TOOL_NAMES = frozenset(
 
 _PREFIX_LABELS = {
     "email": "Email",
-    "browser": "Browser",
-    "memory": "Memory",
     "web": "Web",
     "cartesia": "Cartesia",
     "finance": "Finance",

@@ -111,8 +111,6 @@ Each backend lives in `router/backends/` and exposes tools under its mount prefi
 | Backend | Prefix | Purpose |
 |---------|--------|---------|
 | `email` | `email_` | ProtonMail Bridge — list/search/get/send |
-| `browser` | `browser_` | Playwright-over-CDP browser automation |
-| `memory` | `memory_` | Agent memory store |
 | `web` | `web_` | Web search + contents via Exa |
 | `finance` | `finance_` | Read-only local finance data service |
 | `gtasks` | `gtasks_` | Google Tasks preparation board |
@@ -120,6 +118,8 @@ Each backend lives in `router/backends/` and exposes tools under its mount prefi
 
 Also available but not currently mounted in `server.py`:
 
+- `browser.py` — Playwright-over-CDP MCP tools; its internal HTTP route remains enabled.
+- `memory.py` — agent memory tools.
 - `todoist.py` — Todoist tasks/projects.
 - `notifications.py` — notification MCP tools; its internal HTTP routes remain enabled.
 - `discord.py` — Discord MCP tools; its internal HTTP routes remain enabled.

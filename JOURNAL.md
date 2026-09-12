@@ -6,18 +6,18 @@ Short entries documenting each episode of work on this repo.
 
 ## 2026-09-11: Reduce the public MCP tool catalog
 
-**Goal:** Stop publishing Discord, Todoist, Twitter, and notification tools through the aggregate MCP server.
+**Goal:** Stop publishing browser, Discord, memory, Todoist, Twitter, and notification tools through the aggregate MCP server.
 
 **Changes:**
-- Unmounted the `discord_`, `todoist_`, `twitter_`, and `notify_` tool groups from the MCP router.
-- Kept the Discord and notification HTTP routes enabled for existing internal callers.
+- Unmounted the `browser_`, `discord_`, `memory_`, `todoist_`, `twitter_`, and `notify_` tool groups from the MCP router.
+- Kept the browser, Discord, and notification HTTP routes enabled for existing internal callers.
 - Updated the health response, metadata contract, regression tests, and backend documentation.
 
 **Validation:**
-- The local MCP catalog contains 33 tools and none use a disabled prefix.
+- The local MCP catalog contains 18 tools and none use a disabled prefix.
 - Full non-browser test suite: 164 passed.
 
-**Result:** Backend implementations and credentials remain untouched and can be remounted later, but MCP clients no longer discover these four tool groups.
+**Result:** Backend implementations and credentials remain untouched and can be remounted later, but MCP clients no longer discover these six tool groups.
 
 ## 2026-09-11: Modernize the ChatGPT MCP connector
 

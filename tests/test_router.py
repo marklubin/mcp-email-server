@@ -29,7 +29,9 @@ class TestHealthTool:
 
         result = call_tool(health)
 
-        assert {'todoist', 'notify', 'discord', 'twitter'}.isdisjoint(
+        assert {
+            'todoist', 'notify', 'discord', 'twitter', 'browser', 'memory'
+        }.isdisjoint(
             result['backends']
         )
 
@@ -41,7 +43,14 @@ class TestPublishedToolSurface:
         from router.server import router
 
         tools = await router.get_tools()
-        disabled_prefixes = ('todoist_', 'notify_', 'discord_', 'twitter_')
+        disabled_prefixes = (
+            'todoist_',
+            'notify_',
+            'discord_',
+            'twitter_',
+            'browser_',
+            'memory_',
+        )
 
         assert not any(name.startswith(disabled_prefixes) for name in tools)
 
