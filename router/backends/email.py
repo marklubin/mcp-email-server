@@ -216,11 +216,49 @@ async def authenticated_imap_client():
         await _logout_imap_client(client)
 
 
+async def _select_mailbox(client, mailbox: str) -> str:
+    """Select a mailbox with one bounded retry and Spam/Junk aliases.
+
+    Proton Bridge can transiently answer ``NO`` while a mailbox view is being
+    refreshed.  Continuing in that state makes the next SEARCH fail with the
+    misleading ``illegal in state AUTH`` error.  Validate SELECT explicitly,
+    retry the requested mailbox once, and support the two common names for the
+    junk folder.
+    """
+    requested = str(mailbox or 'INBOX')
+    normalized = requested.strip().casefold()
+    candidates = [requested]
+    if normalized in {'spam', 'junk'}:
+        candidates.extend(['Spam', 'Junk'])
+
+    unique_candidates = []
+    for candidate in candidates:
+        if candidate not in unique_candidates:
+            unique_candidates.append(candidate)
+
+    last_result = None
+    for index, candidate in enumerate(unique_candidates):
+        attempts = 2 if index == 0 else 1
+        for _ in range(attempts):
+            last_result = await client.select(candidate)
+            if getattr(last_result, 'result', None) == 'OK':
+                return candidate
+
+    detail = ''
+    lines = getattr(last_result, 'lines', None)
+    if lines:
+        detail = ': ' + ' '.join(
+            line.decode(errors='replace') if isinstance(line, bytes) else str(line)
+            for line in lines
+        )
+    raise RuntimeError(f"Proton Bridge could not select mailbox {requested!r}{detail}")
+
+
 @mcp.tool()
 async def list_emails(mailbox: str = 'INBOX', limit: int = 10) -> list[dict]:
     """List recent emails with subject, sender, and date (newest first)."""
     async with authenticated_imap_client() as client:
-        await client.select(mailbox)
+        await _select_mailbox(client, mailbox)
 
         result = await client.search('ALL')
         if result.result != 'OK':
@@ -276,7 +314,7 @@ async def search_emails(
         List of matching emails with id, from, subject, date
     """
     async with authenticated_imap_client() as client:
-        await client.select(mailbox)
+        await _select_mailbox(client, mailbox)
 
         # Build IMAP search criteria
         # Search in FROM, SUBJECT, and optionally BODY
@@ -326,7 +364,7 @@ async def search_emails(
 async def get_email(message_id: str, mailbox: str = 'INBOX') -> dict:
     """Get full email content by message ID."""
     async with authenticated_imap_client() as client:
-        await client.select(mailbox)
+        await _select_mailbox(client, mailbox)
 
         result = await client.fetch(message_id, '(BODY.PEEK[])')
         if result.result != 'OK':

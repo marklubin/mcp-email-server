@@ -141,6 +141,52 @@ class TestListEmails:
             for i in range(len(dates) - 1):
                 assert dates[i] >= dates[i + 1], "Emails should be sorted newest first"
 
+    async def test_list_emails_retries_transient_mailbox_select(self, patch_imap, env_vars):
+        from router.backends.email import list_emails
+
+        patch_imap.select = AsyncMock(side_effect=[
+            SimpleNamespace(result='NO', lines=[b'temporarily unavailable']),
+            SimpleNamespace(result='OK', lines=[]),
+        ])
+
+        result = await call_tool(list_emails, mailbox='Spam', limit=10)
+
+        assert isinstance(result, list)
+        assert [call.args[0] for call in patch_imap.select.await_args_list] == [
+            'Spam', 'Spam',
+        ]
+
+    async def test_list_emails_falls_back_between_spam_and_junk_names(self, patch_imap, env_vars):
+        from router.backends.email import list_emails
+
+        patch_imap.select = AsyncMock(side_effect=[
+            SimpleNamespace(result='NO', lines=[]),
+            SimpleNamespace(result='NO', lines=[]),
+            SimpleNamespace(result='OK', lines=[]),
+        ])
+
+        result = await call_tool(list_emails, mailbox='Spam', limit=10)
+
+        assert isinstance(result, list)
+        assert [call.args[0] for call in patch_imap.select.await_args_list] == [
+            'Spam', 'Spam', 'Junk',
+        ]
+
+    async def test_list_emails_stops_before_search_when_mailbox_cannot_be_selected(
+        self, patch_imap, env_vars
+    ):
+        from router.backends.email import list_emails
+
+        patch_imap.select = AsyncMock(return_value=SimpleNamespace(
+            result='NO', lines=[b'unknown mailbox'],
+        ))
+        patch_imap.search = AsyncMock()
+
+        with pytest.raises(RuntimeError, match="could not select mailbox 'Missing'.*unknown mailbox"):
+            await call_tool(list_emails, mailbox='Missing', limit=10)
+
+        patch_imap.search.assert_not_awaited()
+
 
 class TestSearchEmails:
     """Tests for search_emails tool."""
