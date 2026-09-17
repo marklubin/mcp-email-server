@@ -226,6 +226,8 @@ class TestSendEmail:
         )
 
         assert result['status'] == 'sent'
+        assert result['message_id'].startswith('<')
+        assert result['message_id'].endswith('>')
         assert result['to'] == 'recipient@example.com'
         assert result['subject'] == 'Test Subject'
 
@@ -234,6 +236,7 @@ class TestSendEmail:
         sent = patch_smtp[0]
         assert sent['to'] == 'recipient@example.com'
         assert sent['subject'] == 'Test Subject'
+        assert sent['Message-ID'] == result['message_id']
 
     async def test_send_email_uses_correct_smtp_settings(self, patch_smtp, env_vars):
         """Should use environment SMTP settings."""

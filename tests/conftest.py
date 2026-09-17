@@ -153,6 +153,7 @@ def patch_smtp():
             'to': msg['To'],
             'from': msg['From'],
             'subject': msg['Subject'],
+            'Message-ID': msg['Message-ID'],
             'body': msg.get_content(),
             'kwargs': kwargs,
         })

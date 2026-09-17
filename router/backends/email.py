@@ -398,6 +398,7 @@ async def send_email(
     if from_name is not None and ('\r' in from_name or '\n' in from_name):
         raise ValueError('from_name must not contain newline characters')
     from email.message import EmailMessage
+    from email.utils import make_msgid
 
     smtp_host = os.environ.get('PROTON_BRIDGE_HOST', '127.0.0.1')
     smtp_port = int(os.environ.get('PROTON_BRIDGE_SMTP_PORT', '1025'))
@@ -412,6 +413,7 @@ async def send_email(
     )
     msg['To'] = to
     msg['Subject'] = subject
+    msg['Message-ID'] = make_msgid()
     msg.set_content(body)
 
     await aiosmtplib.send(
@@ -424,4 +426,9 @@ async def send_email(
         validate_certs=False,
     )
 
-    return {'status': 'sent', 'to': to, 'subject': subject}
+    return {
+        'status': 'sent',
+        'message_id': msg['Message-ID'],
+        'to': to,
+        'subject': subject,
+    }
